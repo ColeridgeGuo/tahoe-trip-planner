@@ -7,7 +7,7 @@ on:
   schedule:
     # Every 15 minutes, offset from the top of the hour where GitHub's scheduler is busiest.
     # Scheduled runs can still be delayed; the page also pulls chain control live from Caltrans.
-    - cron: '7,22,37,52 * * * *'
+    - cron: '8,23,38,53 * * * *'
 
 permissions:
   contents: read
