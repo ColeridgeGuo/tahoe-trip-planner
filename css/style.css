@@ -165,8 +165,8 @@ footer{max-width:60rem;margin:auto;padding:0.25rem 1.25rem 1rem;font-size:0.7188
 /* desktop: slightly larger type, wider column, title and toggles on one row */
 @media (min-width:900px){
   html{font-size:110%}
-  .bar,main,footer{max-width:75rem}
-  #tabs{padding:0 max(0.5rem,calc(50% - 37.5rem))}
+  .bar,main,footer{max-width:min(75rem,84%)}
+  #tabs{padding:0 max(0.5rem,calc(50% - min(37.5rem,42%)))}
   .bar{padding:1.125rem 1rem 0.875rem;gap:1rem;flex-wrap:nowrap}
   #title{font-size:1.3125rem;gap:0.25rem 0.875rem;flex-wrap:nowrap;white-space:nowrap;min-width:0}
   .where{font-size:0.9375rem}
@@ -174,4 +174,4 @@ footer{max-width:60rem;margin:auto;padding:0.25rem 1.25rem 1rem;font-size:0.7188
   .icon{width:2.125rem;height:2.125rem}
   main{padding-top:1rem;gap:0.875rem}
 }
-@media (min-width:900px) and (max-width:979px){#title .via{display:none}}
+@media (min-width:900px) and (max-width:1149px){#title .via{display:none}}
