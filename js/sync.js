@@ -78,7 +78,7 @@ async function sync() {
     }
     items = merge(remote);
     persist();
-    const body = JSON.stringify({ description: 'Tahoe Run checklist', public: false, files: { [FILE]: { content: JSON.stringify(items, null, 1) } } });
+    const body = JSON.stringify({ description: 'Tahoe Trip Planner checklist', public: false, files: { [FILE]: { content: JSON.stringify(items, null, 1) } } });
     if (!id) id = (await gh('/gists', { method: 'POST', body })).id;
     else if (JSON.stringify(remote) !== JSON.stringify(items)) await gh(`/gists/${id}`, { method: 'PATCH', body });
     ls.set(K.gist, id);

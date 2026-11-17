@@ -4,7 +4,7 @@ import { writeFile, mkdir } from 'node:fs/promises';
 import { DESTINATIONS } from '../js/config.js';
 import { CC_URL, normalizeChain } from '../js/normalize.js';
 
-const UA = 'tahoe-run (personal trip dashboard, github pages)';
+const UA = 'tahoe-trip-planner (personal trip dashboard, github pages)';
 const HOURS = 168;
 const pad = (d) => String(d).padStart(2, '0');
 

@@ -16,6 +16,7 @@ const S = {
   lang: store.get('lang', 'zh'),
   tu: store.get('tu', 'C'), // temperature unit
   lu: store.get('lu', 'imp'), // length system
+  theme: store.get('theme', 'auto'), // auto follows the device
   vehicle: { ...DEFAULT_VEHICLE, ...store.get('vehicle', {}) },
   destId: store.get('dest', DESTINATIONS[0].id),
   direction: store.get('direction', 'out'),
@@ -126,11 +127,14 @@ const card = (title, body, extra = '') => `<section class="card"><h2>${title}${e
 function renderChrome() {
   document.documentElement.lang = S.lang === 'zh' ? 'zh-CN' : 'en';
   const d = dest();
-  $('#title').innerHTML = DESTINATIONS.length > 1
-    ? `<select data-change="dest" aria-label="${t('dest')}">${DESTINATIONS.map((x) => `<option value="${x.id}" ${x.id === d.id ? 'selected' : ''}>${esc(nm(x.name))}</option>`).join('')}</select>`
-    : `<strong>${esc(nm(d.name))}</strong><span class="via">${esc(d.route.label)} · ${fDist(d.route.distanceKm)}</span>`;
+  document.documentElement.dataset.theme = S.theme;
+  const sub = `<span class="via">${esc(d.route.label)} · ${fDist(d.route.distanceKm)}</span>`;
+  $('#title').innerHTML = `<span class="brand">Tahoe Trip Planner</span><span class="where">` + (DESTINATIONS.length > 1
+    ? `<select data-change="dest" aria-label="${t('dest')}">${DESTINATIONS.map((x) => `<option value="${x.id}" ${x.id === d.id ? 'selected' : ''}>${esc(nm(x.name))}</option>`).join('')}</select>${sub}`
+    : `<strong>${esc(nm(d.name))}</strong>${sub}`) + '</span>';
   $('#toggles').innerHTML =
     seg('lang', S.lang, [['zh', '中'], ['en', 'EN']]) + seg('tu', S.tu, [['C', '°C'], ['F', '°F']]) + seg('lu', S.lu, [['imp', 'in·ft'], ['met', 'cm·m']]) +
+    `<button class="icon" data-act="theme" title="${t('theme')}: ${t('th.' + S.theme)}" aria-label="${t('theme')}: ${t('th.' + S.theme)}">${{ auto: '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 1.8a6.2 6.2 0 0 1 0 12.4z" fill="currentColor"/></svg>', light: '☀', dark: '☾' }[S.theme]}</button>` +
     `<button class="icon" data-act="refresh" title="${t('refresh')}" aria-label="${t('refresh')}">↻</button><button class="icon" data-act="settings" title="${t('settings')}" aria-label="${t('settings')}">⚙</button>`;
   $('#tabs').innerHTML = TABS.map((k) => `<a href="#${k}" class="${k === S.tab ? 'on' : ''}" ${k === S.tab ? 'aria-current="page"' : ''}>${t('tabs.' + k)}</a>`).join('');
   const st = S.data
@@ -353,6 +357,7 @@ function openSettings() {
   const v = S.vehicle;
   const chk = (k, label) => `<label class="chk"><input type="checkbox" data-change="veh" data-v="${k}" ${v[k] ? 'checked' : ''}>${label}</label>`;
   $('#dlg').innerHTML = `<form method="dialog"><h2>${t('settings')}</h2>
+    <h3>${t('theme')}</h3>${seg('themeSet', S.theme, [['auto', t('th.auto')], ['light', t('th.light')], ['dark', t('th.dark')]])}
     <h3>${t('vehicle')}</h3>${seg('drive', v.drive, [['awd', t('awd')], ['2wd', t('twd')]])}<div class="chks">${chk('snowTires', t('snowTires'))}${chk('chains', t('chains'))}${chk('ev', t('ev'))}</div>
     <h3>${t('syncTitle')}</h3><p class="note">${t('syncHelp')} <a href="https://github.com/settings/tokens/new?scopes=gist&description=Tahoe%20Run%20checklist" target="_blank" rel="noopener">${t('makeToken')} ↗</a></p>
     ${list.hasToken() ? `<p><span class="tag ${list.status()}">${t('sync.' + list.status())}</span> <button type="button" class="ghost" data-act="disconnect">${t('disconnect')}</button></p>`
@@ -377,6 +382,8 @@ document.addEventListener('click', (e) => {
     case 'lang': setPref('lang', v); break;
     case 'tu': setPref('tu', v); break;
     case 'lu': setPref('lu', v); break;
+    case 'theme': setPref('theme', { auto: 'light', light: 'dark', dark: 'auto' }[S.theme]); break;
+    case 'themeSet': setPref('theme', v); t = makeT(S.lang); openSettings(); break;
     case 'direction': setPref('direction', v); break;
     case 'mode': S.depart = v === 'now' ? 'now' : { day: L.dayKey(Date.now()), h: Math.min(23, L.hourOf(Date.now()) + 1) }; break;
     case 'hour': S.depart = { day: S.depart === 'now' ? L.dayKey(Date.now()) : S.depart.day, h: +v }; break;

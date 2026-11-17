@@ -3,10 +3,15 @@
   --ok:#1a8f4c;--ok-bg:#e6f5ec;--caution:#b86a00;--caution-bg:#fdf1dc;--nogo:#c62828;--nogo-bg:#fde8e7;--snow:#3d8fd1;
   color-scheme:light dark;
 }
-@media (prefers-color-scheme:dark){:root{
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
   --bg:#0e1116;--card:#171b22;--ink:#e8ebf0;--mute:#8d96a5;--line:#272d37;--accent:#7cc0ea;--soft:#1f252e;
   --ok:#4cc27d;--ok-bg:#12301f;--caution:#f0a83a;--caution-bg:#35270c;--nogo:#ff6b63;--nogo-bg:#3a1513;--snow:#5aa9e6;
 }}
+:root[data-theme=dark]{color-scheme:dark;
+  --bg:#0e1116;--card:#171b22;--ink:#e8ebf0;--mute:#8d96a5;--line:#272d37;--accent:#7cc0ea;--soft:#1f252e;
+  --ok:#4cc27d;--ok-bg:#12301f;--caution:#f0a83a;--caution-bg:#35270c;--nogo:#ff6b63;--nogo-bg:#3a1513;--snow:#5aa9e6;
+}
+:root[data-theme=light]{color-scheme:light}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"PingFang SC","Segoe UI",sans-serif;padding-bottom:calc(64px + env(safe-area-inset-bottom))}
@@ -19,16 +24,19 @@ header,#tabs{background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-fi
 #tabs{position:sticky;top:0;z-index:5;border-bottom:1px solid var(--line)}
 @media (max-width:719px){header{position:sticky;top:0;z-index:5;border-bottom:1px solid var(--line)}}
 .bar{max-width:960px;margin:auto;padding:10px 16px 8px;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between}
-#title{display:flex;align-items:baseline;gap:8px;font-size:17px}
+#title{display:flex;align-items:baseline;gap:4px 12px;font-size:17px;flex-wrap:wrap}
+.brand{font-weight:700;letter-spacing:-.01em}
+.where{display:flex;align-items:baseline;gap:8px;color:var(--mute);font-size:14px}
+.where strong{color:var(--ink);font-weight:600}
 #title .via{color:var(--mute);font-size:13px}
 #toggles{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .seg{display:inline-flex;background:var(--soft);border-radius:9px;padding:2px}
 .seg button{border:0;background:none;padding:5px 10px;border-radius:7px;font-size:13px;color:var(--mute);white-space:nowrap}
 .seg button.on{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 1px 2px #0002}
-.icon{border:0;background:var(--soft);border-radius:9px;width:32px;height:32px;font-size:16px;line-height:1}
+.icon{border:0;background:var(--soft);border-radius:9px;width:32px;height:32px;font-size:16px;line-height:1;display:inline-grid;place-items:center;padding:0}
 .icon.spin{animation:spin .8s linear}
 @keyframes spin{to{transform:rotate(360deg)}}
-#tabs{display:flex;justify-content:center;padding:0 max(8px,calc(50vw - 480px))}
+#tabs{display:flex;justify-content:center;padding:0 max(8px,calc(50% - 480px))}
 #tabs a{flex:1;text-align:center;padding:9px 4px;text-decoration:none;color:var(--mute);font-size:14px;border-bottom:2px solid transparent;white-space:nowrap}
 #tabs a.on{color:var(--ink);font-weight:600;border-color:var(--accent)}
 @media (max-width:719px){
@@ -36,6 +44,7 @@ header,#tabs{background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-fi
   #tabs a{padding:13px 2px;border-bottom:0;border-top:2px solid transparent;font-size:13px}
 }
 @media (min-width:720px){body{padding-bottom:24px}}
+@media (max-width:480px){#toggles{gap:4px;flex-wrap:nowrap}.seg button{padding:5px 8px}.icon{width:30px;height:30px}}
 main{max-width:960px;margin:auto;padding:12px 16px;display:grid;gap:12px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;min-width:0}
 .card h2{margin:0 0 10px;font-size:15px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -153,3 +162,17 @@ dialog h2{margin:0 0 6px;font-size:17px}dialog h3{margin:16px 0 8px;font-size:13
 .camdlg img{width:100%;border-radius:10px;display:block;margin:8px 0;background:var(--soft);min-height:120px}
 footer{max-width:960px;margin:auto;padding:4px 20px 16px;font-size:11.5px;color:var(--mute);display:grid;gap:2px}
 .factors li>div{flex:1;min-width:0}
+
+/* desktop: larger type, wider column, roomier header */
+@media (min-width:900px){
+  body{zoom:1.25}
+  .bar,main,footer{max-width:1100px}
+  #tabs{padding:0 max(8px,calc(50% - 550px))}
+  .bar{padding:18px 16px 12px;gap:12px 20px}
+  #title{font-size:22px;gap:4px 16px}
+  .where{font-size:15px}
+  #toggles{gap:10px}
+  .seg button{padding:6px 12px}
+  .icon{width:34px;height:34px}
+  main{padding-top:16px;gap:14px}
+}
