@@ -339,7 +339,7 @@ for (const dest of DESTINATIONS) {
       const old = prev?.weather?.[p.id];
       const oldAt = old?.at ?? (prev?.status?.weather?.ok ? prev.generatedAt : null);
       if (old && oldAt && Date.now() - oldAt < MAX_CARRY_MS) {
-        weather[p.id] = { ...shiftWeather(old, Math.round((t0 - prev.t0) / 36e5)), at: oldAt };
+        weather[p.id] = { ...shiftWeather(old, Math.round((t0 - prev.t0) / 36e5)), at: oldAt, carried: true };
         kept.push(p.id);
       } else failed.push(p.id);
     }

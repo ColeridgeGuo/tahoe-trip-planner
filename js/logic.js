@@ -84,8 +84,22 @@ export function alongRoute(data, dest, departMs, direction, hours = dest.route.d
   });
 }
 
+// A forecast point whose last fetch failed keeps its previous forecast (`carried`, fetched at `at`).
+// Returns when the oldest such forecast among these points was fetched, or null if all are fresh.
+export function weatherStaleAt(data, ids) {
+  const ats = ids.map((id) => data.weather[id]).filter((w) => w?.carried && w.at).map((w) => w.at);
+  return ats.length ? Math.min(...ats) : null;
+}
+// Tag a factor built on carried-over data with its age; once too old it is no better than caution.
+function stamp(f, at, nowMs) {
+  if (at == null) return f;
+  f.staleAt = at;
+  if (nowMs - at > TH.staleMin * 6e4) f.level = worst(f.level, 'caution');
+  return f;
+}
+
 // Forecast-only factors for a given departure. Used for the verdict and the hour-by-hour strip.
-export function forecastFactors(data, dest, departMs, direction, hours = dest.route.driveHours) {
+export function forecastFactors(data, dest, departMs, direction, hours = dest.route.driveHours, nowMs = Date.now()) {
   const r = dest.route;
   const stops = alongRoute(data, dest, departMs, direction, hours);
   const mtn = stops.filter((s) => r.mountainPoints.includes(s.point.id));
@@ -122,6 +136,9 @@ export function forecastFactors(data, dest, departMs, direction, hours = dest.ro
 
   const gust = Math.max(0, ...mtn.map((s) => s.gust ?? 0));
   if (gust >= TH.gustRoad) factors.push({ key: 'wind', level: 'caution', msg: 'windHigh', v: gust });
+
+  const wxAt = weatherStaleAt(data, r.mountainPoints);
+  for (const f of factors) if (f.key === 'snow' || f.key === 'wind') stamp(f, wxAt, nowMs);
 
   return { factors, stops, level: factors.reduce((l, f) => worst(l, f.level), 'ok') };
 }
@@ -169,14 +186,7 @@ export function evaluate(data, dest, opts) {
   // A source that failed on the last refresh either has nothing (unconfirmed), or still carries its last good
   // data: that is judged as usual, tagged with its age, and no better than caution once it is too old.
   const src = (k) => st[k]?.ok !== false || st[k].dataAt != null;
-  const add = (k, f) => {
-    const at = st[k]?.ok === false ? st[k].dataAt : null;
-    if (at != null) {
-      f.staleAt = at;
-      if (nowMs - at > TH.staleMin * 6e4) f.level = worst(f.level, 'caution');
-    }
-    factors.push(f);
-  };
+  const add = (k, f) => factors.push(stamp(f, st[k]?.ok === false ? st[k].dataAt : null, nowMs));
 
   // 1. Chain control (live)
   if (!src('chain')) factors.push({ key: 'chain', level: 'caution', msg: 'srcFailed' });
@@ -207,7 +217,7 @@ export function evaluate(data, dest, opts) {
 
   // 4-6. Forecast for the drive window
   if (!src('alerts')) factors.push({ key: 'alerts', level: 'caution', msg: 'srcFailed' });
-  const fc = forecastFactors(data, dest, departMs, direction, dt.hours);
+  const fc = forecastFactors(data, dest, departMs, direction, dt.hours, nowMs);
   for (const f of fc.factors) {
     if (f.key !== 'alerts') factors.push(f);
     else if (src('alerts')) add('alerts', f);
@@ -223,14 +233,15 @@ export function evaluate(data, dest, opts) {
     const liftDay = dayKey(endMs + 6 * 36e5);
     const lift = liftRisk(data, dest, liftDay);
     if (lift) lift.day = liftDay;
-    if (lift) factors.push({ key: 'lift', level: lift.level === 'high' ? 'caution' : 'ok', msg: `lift_${lift.level}`, v: lift });
+    if (lift) factors.push(stamp({ key: 'lift', level: lift.level === 'high' ? 'caution' : 'ok', msg: `lift_${lift.level}`, v: lift }, weatherStaleAt(data, [dest.resort.summitPoint]), nowMs));
   }
 
   // 8. Cold along the route (EV range)
   const temps = fc.stops.map((s) => s.temp).filter((t) => t != null);
   if (vehicle.ev && temps.length) {
     const min = Math.min(...temps);
-    factors.push({ key: 'ev', level: 'info', msg: min <= -7 ? 'evCold' : min <= 2 ? 'evCool' : 'evMild', v: min });
+    const evAt = weatherStaleAt(data, fc.stops.map((s) => s.point.id));
+    factors.push({ key: 'ev', level: 'info', msg: min <= -7 ? 'evCold' : min <= 2 ? 'evCool' : 'evMild', v: min, ...(evAt ? { staleAt: evAt } : {}) });
   }
 
   // 9. Freshness
@@ -251,7 +262,7 @@ export function departureStrip(data, dest, ix, day, direction, nowMs = Date.now(
     .map((h) => {
       if (h.i < 0) return { ...h, past: true, level: 'ok', drive: null };
       const dt = driveTime(data, dest, Math.max(h.ms, nowMs), direction, nowMs);
-      return { ...h, past: h.ms + 36e5 <= nowMs, level: forecastFactors(data, dest, h.ms, direction, dt.hours).level, drive: dt.src === 'fixed' ? null : dt };
+      return { ...h, past: h.ms + 36e5 <= nowMs, level: forecastFactors(data, dest, h.ms, direction, dt.hours, nowMs).level, drive: dt.src === 'fixed' ? null : dt };
     });
 }
 export function bestWindow(strip, from = 5, to = 21) {
