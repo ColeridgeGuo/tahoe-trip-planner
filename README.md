@@ -1,6 +1,6 @@
 # Tahoe Trip Planner
 
-A go / no-go dashboard for driving from the Bay Area to a Tahoe ski resort: chain control, closures, CHP incidents, route weather, what to wear, resort cams and a bring-up checklist. Static site, no backend.
+A go / no-go dashboard for driving from the Bay Area to a Tahoe ski resort: chain control, closures, CHP incidents, route weather, what to wear, resort cams and a packing checklist. Static site, no backend.
 
 ## How it works
 
