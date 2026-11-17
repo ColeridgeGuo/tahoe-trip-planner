@@ -1,10 +1,10 @@
 export const STR = {
   zh: {
-    tabs: { verdict: '判决', weather: '天气', roads: '路况', wear: '穿衣', resort: '雪场', list: '清单' },
+    tabs: { verdict: '建议', weather: '天气', roads: '路况', wear: '穿衣', resort: '雪场', list: '清单' },
     go: '可以出发', caution: '可以去，要小心', nogo: '别去',
     goSub: '路上没有会拦住你的东西。', cautionSub: '能走，但下面标黄的几项要留意。', nogoSub: '下面标红的任意一项都足以让这趟不值得。',
     out: '去程', back: '返程', now: '现在出发', pick: '选时间', today: '今天', tomorrow: '明天',
-    departAt: '出发', arriveAt: '预计到达', basis: '判决依据', liveTag: '实时', fcTag: '预报', refOnly: '当前状态，仅供参考',
+    departAt: '出发', arriveAt: '预计到达', basis: '依据', liveTag: '实时', fcTag: '预报', refOnly: '当前状态，仅供参考',
     stripTitle: '这一天几点出发', stripHint: '只看预报（降雪、预警、大风）。点一格切换出发时间。', bestWin: '建议出发窗口', noWin: '这一天没有干净的出发窗口',
     alongTitle: '沿途经过时的天气', time: '时间', temp: '气温', snowRate: '降雪', snowLevel: '雪线', gust: '阵风', pop: '降水概率',
     f: { chain: '链条管制', closures: '封路 / 施工', incidents: 'CHP 事故', alerts: 'NWS 预警', snow: '垭口降雪', wind: '垭口大风', lift: '缆车停运风险', ev: '低温与续航', fresh: '数据新鲜度' },

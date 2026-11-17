@@ -55,7 +55,7 @@ export const DESTINATIONS = [
       ],
       links: {
         cams: 'https://www.skiheavenly.com/the-mountain/mountain-conditions/mountain-cams.aspx',
-        lifts: 'https://www.skiheavenly.com/the-mountain/mountain-conditions/lift-and-terrain-status.aspx',
+        lifts: 'https://www.skiheavenly.com/the-mountain/mountain-conditions/terrain-and-lift-status.aspx',
         snow: 'https://www.skiheavenly.com/the-mountain/mountain-conditions/snow-and-weather-report.aspx',
       },
     },
