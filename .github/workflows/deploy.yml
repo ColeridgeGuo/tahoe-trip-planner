@@ -4,10 +4,8 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-  schedule:
-    # Every 15 minutes, offset from the top of the hour where GitHub's scheduler is busiest.
-    # Scheduled runs can still be delayed; the page also pulls chain control live from Caltrans.
-    - cron: '8,23,38,53 * * * *'
+  # No `schedule:` here on purpose. The 15-minute refresh is triggered from outside by a cron-job that calls
+  # workflow_dispatch; GitHub's own scheduler was late and would now only duplicate those runs.
 
 permissions:
   contents: read

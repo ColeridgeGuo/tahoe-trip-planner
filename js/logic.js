@@ -38,8 +38,9 @@ export function offsetFor(route, point, direction) {
   return direction === 'out' ? point.offsetH : route.driveHours - point.offsetH;
 }
 
-// How long the drive takes for a given departure: live TomTom time if leaving about now, the hourly
-// forecast if leaving within the next day, otherwise the route's fixed estimate.
+// How long the drive takes for a given departure: live TomTom time if leaving about now, otherwise the
+// forecast (hourly for the next day, then a coarser grid out to 7 days), otherwise the route's fixed estimate.
+const DRIVE_GAP_MS = 3 * 36e5; // widest gap between two forecast points that is still interpolated across
 export function driveTime(data, dest, departMs, direction, nowMs = Date.now()) {
   const fixed = { hours: dest.route.driveHours, src: 'fixed' };
   const d = data.drive;
@@ -49,11 +50,14 @@ export function driveTime(data, dest, departMs, direction, nowMs = Date.now()) {
     const base = x.historicSec ?? x.noTrafficSec;
     return { hours: x.sec / 3600, src: 'live', sec: x.sec, deltaMin: base ? Math.round((x.sec - base) / 60) : null, vs: x.historicSec ? 'usual' : 'free' };
   }
-  const h = d.hourly?.[direction] || [];
+  const near = d.hourly?.[direction] || [];
+  const nearEnd = near.length ? near[near.length - 1].ms : -Infinity;
+  const h = [...near, ...(d.long?.[direction] || []).filter((x) => x.ms > nearEnd)];
   const i = h.findIndex((x) => x.ms > departMs);
   const a = i > 0 ? h[i - 1] : i === 0 ? h[0] : h[h.length - 1];
   const b = i > 0 ? h[i] : a;
-  if (!a || Math.abs(a.ms - departMs) > 60 * 6e4) return fixed;
+  // Between two points: interpolate unless the gap is too wide. Outside the series: only within an hour of its end.
+  if (!a || (i > 0 ? b.ms - a.ms > DRIVE_GAP_MS : Math.abs(a.ms - departMs) > 60 * 6e4)) return fixed;
   const f = b.ms === a.ms ? 0 : Math.min(1, Math.max(0, (departMs - a.ms) / (b.ms - a.ms)));
   const sec = a.sec + (b.sec - a.sec) * f;
   const free = a.noTrafficSec;

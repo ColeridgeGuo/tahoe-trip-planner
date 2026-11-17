@@ -273,8 +273,18 @@ async function ttRoute(points, departMs) {
   }
   throw new Error(`TomTom routing: ${last}`);
 }
-// Live drive time both ways on every run; hourly forecasts for the next 24 h are refreshed about once an hour
-// and otherwise carried over from the previously published file, to stay well inside the free daily quota.
+// Live drive time both ways on every run. Forecasts are refreshed far less often and otherwise carried over from
+// the previously published file, to stay well inside the free daily quota (2,500 requests):
+//   live     2 requests x 96 runs a day                       = 192
+//   hourly   next 24 h, every hour, refreshed hourly: 48 x 24 = 1,152
+//   long     hours 24-168, every 2 h, refreshed every 12 h: 146 x 2 = 292
+// About 1,640 a day for one destination. Beyond a day TomTom predicts from its historic weekly traffic
+// profiles, which do not move between runs, so a coarse grid refreshed twice a day loses nothing.
+const HOURLY_EVERY_MS = 55 * 6e4;
+const LONG_EVERY_MS = 12 * 36e5 - 5 * 6e4;
+const LONG_RETRY_MS = 60 * 6e4; // after a failed long refresh, wait this long rather than retrying every run
+const LONG_STEP_H = 2;
+const LONG_TO_H = 168;
 async function drive(dest, prevFile) {
   const pt = (id) => dest.route.points.find((p) => p.id === id);
   const way = [dest.route.points[0], ...dest.route.drivePins.map(pt), pt(dest.route.townPoint)];
@@ -285,30 +295,62 @@ async function drive(dest, prevFile) {
     console.log(`drive ${k}: ${res[k].km} km, legs ${pts.map((p) => p.id).join(' > ')}: ${res[k].legs.map((l) => `${l.km}km/${l.min}min`).join(', ')}`);
   }
   const prev = prevFile?.drive;
-  if (prev?.hourly && Date.now() - prev.hourlyAt < 55 * 6e4) {
+  const h0 = Math.ceil(Date.now() / 36e5) * 36e5;
+  // Fills `into` for the given hour offsets; a failure throws and leaves the hours fetched so far in place.
+  const forecast = async (into, offsets) => {
+    for (const i of offsets) {
+      for (const [k, pts] of Object.entries(dirs)) {
+        const r = await ttRoute(pts, h0 + i * 36e5);
+        into[k].push({ ms: h0 + i * 36e5, sec: r.sec, noTrafficSec: r.noTrafficSec });
+      }
+    }
+  };
+  const errors = [];
+  if (prev?.hourly && Date.now() - prev.hourlyAt < HOURLY_EVERY_MS) {
     res.hourlyAt = prev.hourlyAt;
     res.hourly = prev.hourly;
   } else {
-    const h0 = Math.ceil(Date.now() / 36e5) * 36e5;
     const hourly = { out: [], back: [] };
     try {
-      for (let i = 0; i < 24; i++) {
-        for (const [k, pts] of Object.entries(dirs)) {
-          const r = await ttRoute(pts, h0 + i * 36e5);
-          hourly[k].push({ ms: h0 + i * 36e5, sec: r.sec, noTrafficSec: r.noTrafficSec });
-        }
-      }
+      await forecast(hourly, Array.from({ length: 24 }, (_, i) => i));
       res.hourly = hourly;
       res.hourlyAt = Date.now();
     } catch (e) {
       // A failed forecast request must not throw away the live times above. Keep the last forecast (or the
       // hours fetched so far) and leave hourlyAt old so the next run tries again.
       console.error(`[drive] hourly forecast: ${e.message}`);
-      res.hourlyError = String(e.message).slice(0, 200);
+      errors.push(`hourly: ${e.message}`);
       res.hourly = prev?.hourly || hourly;
       res.hourlyAt = prev?.hourly ? prev.hourlyAt : 0;
     }
   }
+  // Days 2-7 on a coarser grid. The page joins this onto the end of the hourly series.
+  if (prev?.long && Date.now() - prev.longAt < LONG_EVERY_MS) {
+    res.longAt = prev.longAt;
+    res.long = prev.long;
+  } else if (errors.length) {
+    // TomTom is already failing on this run; do not spend more requests on it.
+    res.long = prev?.long || { out: [], back: [] };
+    res.longAt = prev?.long ? prev.longAt : 0;
+  } else {
+    const long = { out: [], back: [] };
+    const offsets = [];
+    for (let i = 24; i <= LONG_TO_H; i += LONG_STEP_H) offsets.push(i);
+    try {
+      await forecast(long, offsets);
+      res.long = long;
+      res.longAt = Date.now();
+    } catch (e) {
+      // Keep whichever reaches further, the last long forecast or the part fetched now, and stamp it so the
+      // next attempt is an hour away: a request that keeps failing must not burn the quota every 15 minutes.
+      console.error(`[drive] long forecast: ${e.message}`);
+      errors.push(`long: ${e.message}`);
+      const end = (x) => x?.out?.at(-1)?.ms || 0;
+      res.long = end(prev?.long) >= end(long) ? prev?.long || long : { out: long.out.slice(0, long.back.length), back: long.back };
+      res.longAt = Date.now() - LONG_EVERY_MS + LONG_RETRY_MS;
+    }
+  }
+  if (errors.length) res.hourlyError = errors.join('; ').slice(0, 200);
   return res;
 }
 
@@ -355,5 +397,5 @@ for (const dest of DESTINATIONS) {
   await writeFile(new URL(`../data/${dest.id}.json`, import.meta.url), JSON.stringify(out));
   console.log(dest.id, Object.entries(status).map(([k, v]) => `${k}:${v.ok ? 'ok' : 'FAIL'}`).join(' '),
     `chain=${ch.length} cams=${cm.length} closures=${cl.length} incidents=${inc.length} alerts=${al.length} weather=${Object.keys(weather).length}`,
-    dr ? `drive: out ${Math.round(dr.out.sec / 60)}min back ${Math.round(dr.back.sec / 60)}min hourly=${dr.hourly.out.length} (${Math.round((Date.now() - dr.hourlyAt) / 6e4)}min old)` : TT_KEY ? 'drive: FAILED' : 'drive: no TOMTOM_KEY');
+    dr ? `drive: out ${Math.round(dr.out.sec / 60)}min back ${Math.round(dr.back.sec / 60)}min hourly=${dr.hourly.out.length} (${Math.round((Date.now() - dr.hourlyAt) / 6e4)}min old) long=${dr.long?.out.length ?? 0} (${Math.round((Date.now() - (dr.longAt || 0)) / 6e4)}min old)` : TT_KEY ? 'drive: FAILED' : 'drive: no TOMTOM_KEY');
 }
