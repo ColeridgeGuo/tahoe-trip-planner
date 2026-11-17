@@ -217,7 +217,7 @@ function drawMap() {
     const osm = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
     const cartoDark = kind === 'dark' && CARTO_KEY;
     MAP.tiles = (cartoDark
-      ? LF.tileLayer(`https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=${CARTO_KEY}`, { subdomains: 'abcd', maxZoom: 18, attribution: `${osm} © <a href="https://carto.com/attributions">CARTO</a>` })
+      ? LF.tileLayer(`https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?key=${CARTO_KEY}`, { subdomains: 'abcd', maxZoom: 18, attribution: `${osm} © <a href="https://carto.com/attributions">CARTO</a>` })
       : LF.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: osm })
     ).addTo(map);
     map.getContainer().classList.toggle('invert', kind === 'dark' && !cartoDark);

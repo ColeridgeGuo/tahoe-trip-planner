@@ -65,5 +65,11 @@ export const DESTINATIONS = [
 
 export const DEFAULT_VEHICLE = { drive: 'awd', snowTires: true, chains: true, ev: true };
 
-// Optional CARTO Basemaps key for the dark map style. Empty = dark mode uses colour-inverted OpenStreetMap tiles.
-export const CARTO_KEY = '';
+// CARTO Basemaps keys for the dark map style. Each key is locked by CARTO to the site it was issued for,
+// so the right one is picked by hostname. No key for the current host = dark mode falls back to
+// colour-inverted OpenStreetMap tiles. Free for non-commercial use up to 5M requests a month.
+const CARTO_KEYS = {
+  'coleridgeguo.github.io': 'cb1_5b2s_1_77644b2d4b975a7320a48ce3',
+  localhost: 'cb1_5b2s_2_6463e6586c468ef9c1dc849e',
+};
+export const CARTO_KEY = (typeof location !== 'undefined' && CARTO_KEYS[location.hostname]) || '';
