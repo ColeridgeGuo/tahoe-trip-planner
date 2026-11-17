@@ -122,7 +122,12 @@ async function liveChain() {
 // ---------- rendering ----------
 const seg = (act, cur, opts) => `<div class="seg" role="group">${opts.map(([v, label]) => `<button data-act="${act}" data-v="${v}" class="${v === cur ? 'on' : ''}" aria-pressed="${v === cur}">${label}</button>`).join('')}</div>`;
 const dot = (level) => `<span class="dot ${level}"></span>`;
-const card = (title, body, extra = '') => `<section class="card"><h2>${title}${extra}</h2>${body}</section>`;
+// Collapsible section. Collapsed sections render without their body, so hidden images and streams never load.
+const folded = new Set(store.get('folded', []));
+function card(key, title, body, extra = '', cls = '') {
+  const c = folded.has(key);
+  return `<section class="card ${cls} ${c ? 'collapsed' : ''}" data-k="${key}"><h2><button class="fold" data-act="fold" data-v="${key}" aria-expanded="${!c}"><span class="chev" aria-hidden="true"></span><span>${title}</span></button>${extra}</h2><div class="cbody">${c ? '' : body}</div></section>`;
+}
 
 function renderChrome() {
   document.documentElement.lang = S.lang === 'zh' ? 'zh-CN' : 'en';
@@ -228,7 +233,7 @@ function viewVerdict() {
   const along = `<div class="tablewrap"><table><thead><tr><th></th><th>${t('time')}</th><th>${t('temp')}</th><th>${t('snowRate')}</th><th>${t('snowLevel')}</th><th>${t('gust')}</th></tr></thead><tbody>${ev.stops.map((s) => `<tr>
       <th>${esc(nm(s.point.name))}<small>${fElev(s.elevM)}</small></th><td>${fTime(s.ms)}</td>${s.missing ? `<td colspan="4" class="muted">${t('noData')}</td>` : `<td>${fT0(s.temp)}</td><td class="${s.snow >= L.TH.snowHeavy ? 'bad' : s.snow >= L.TH.snowLight ? 'warn' : ''}">${s.snow > 0 ? fSnow(s.snow) + '/h' : s.qpf > 0.1 ? '🌧' : '–'}</td><td>${fElev(s.snowLevel)}</td><td>${fWind(s.gust)}</td>`}</tr>`).join('')}</tbody></table></div>`;
 
-  return controls + hero + card(t('basis'), `<ul class="factors">${factors}</ul>`) + card(`${t('stripTitle')} · ${fDay(day)}`, stripHtml) + card(t('alongTitle'), along);
+  return controls + hero + card('basis', t('basis'), `<ul class="factors">${factors}</ul>`) + card('strip', `${t('stripTitle')} · ${fDay(day)}`, stripHtml) + card('along', t('alongTitle'), along);
 }
 
 // ----- weather -----
@@ -265,7 +270,7 @@ function viewWeather() {
   }).join('')}</div>
   <div class="legend"><span>${t('temp')}</span><span class="k snow">${t('snow')} (${S.lu === 'imp' ? 'in' : 'cm'}/h)</span><span>${t('snowLevel')} (${S.lu === 'imp' ? '×1000 ft' : 'm'})</span><span>${t('gust')} (${S.lu === 'imp' ? 'mph' : 'km/h'})</span></div>`;
 
-  return chips + `<p class="note pad0">${t('elevNote', { v: fElev(elev) })} · ${t('source')}: NWS ${esc(w.office)} · ${t('updated')} ${fWhen(Date.parse(w.updated))}</p>` + card(t('daily7'), dailyHtml) + card(t('hourly'), hourly);
+  return chips + `<p class="note pad0">${t('elevNote', { v: fElev(elev) })} · ${t('source')}: NWS ${esc(w.office)} · ${t('updated')} ${fWhen(Date.parse(w.updated))}</p>` + card('daily', t('daily7'), dailyHtml) + card('hourly', t('hourly'), hourly);
 }
 
 // ----- roads -----
@@ -302,8 +307,8 @@ function viewRoads() {
   const cams = `<p class="note">${t('camHint')}</p><div class="cams">${S.data.cams.map((x, i) => `<button class="cam" data-act="cam" data-v="${i}"><img loading="lazy" alt="${esc(x.name)}" src="${esc(x.img)}?t=${bust}"><span>${esc(x.name)}<small>${x.elevFt ? fElev(x.elevFt / 3.28084) : ''}</small></span></button>`).join('')}</div>`;
 
   const st = (k) => (S.data.status[k]?.ok === false ? `<span class="tag bad">${t('loadFail')}</span>` : '');
-  return card(`${r.label} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? t('liveTag') : fAgo(S.data.generatedAt)}</span>${st('chain')}`) +
-    card(t('altTitle'), alts) + card(t('incTitle'), inc, st('incidents')) + card(t('closTitle'), clos, st('closures')) + card(t('camTitle'), cams, st('cams')) + `<p class="note pad0">${t('srcTextNote')} · ${t('chainDir', { dir: dirLabel })}</p>`;
+  return card('chain', `${r.label} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? t('liveTag') : fAgo(S.data.generatedAt)}</span>${st('chain')}`) +
+    card('alts', t('altTitle'), alts) + card('inc', t('incTitle'), inc, st('incidents')) + card('clos', t('closTitle'), clos, st('closures')) + card('cams', t('camTitle'), cams, st('cams')) + `<p class="note pad0">${t('srcTextNote')} · ${t('chainDir', { dir: dirLabel })}</p>`;
 }
 
 // ----- wear -----
@@ -315,9 +320,9 @@ function viewWear() {
     const tw = town.find((x) => x.day === m.day);
     const c = L.clothing(m, tw);
     const li = (a) => a.map((k) => `<li>${t('w.' + k)}</li>`).join('');
-    return `<section class="card wear"><h2>${fDay(m.day)}${fDay(m.day) === fDayFull(m.day) ? '' : ` <small>${fDayFull(m.day)}</small>`}</h2>
-      <div class="stats"><span>${t('feels')} <b>${fT(m.feelsLo ?? m.lo)}</b></span><span>${t('gust')} <b>${fWind(m.gust)}</b></span><span>${t('snow')} <b>${fSnow(m.snow)}</b></span></div>
-      <div class="two"><div><h3>${t('mountain')}</h3><ul>${li(c.mountain)}</ul></div><div><h3>${t('town')} <small>${tw ? `${fT0(tw.hi)} / ${fT0(tw.lo)}` : ''}</small></h3><ul>${li(c.town)}</ul></div></div></section>`;
+    const title = `${fDay(m.day)}${fDay(m.day) === fDayFull(m.day) ? '' : ` <small>${fDayFull(m.day)}</small>`}`;
+    return card('wear' + S.ix.days.indexOf(m.day), title, `<div class="stats"><span>${t('feels')} <b>${fT(m.feelsLo ?? m.lo)}</b></span><span>${t('gust')} <b>${fWind(m.gust)}</b></span><span>${t('snow')} <b>${fSnow(m.snow)}</b></span></div>
+      <div class="two"><div><h3>${t('mountain')}</h3><ul>${li(c.mountain)}</ul></div><div><h3>${t('town')} <small>${tw ? `${fT0(tw.hi)} / ${fT0(tw.lo)}` : ''}</small></h3><ul>${li(c.town)}</ul></div></div>`, '', 'wear');
   }).join('');
   return cards || `<p class="muted pad">${t('noData')}</p>`;
 }
@@ -338,18 +343,17 @@ function viewResort() {
     : `<button class="load" data-act="rcam" data-v="${i}">▶ ${t('camLoad')}</button>`}<figcaption>${esc(nm(c.name))}</figcaption></figure>`).join('')}</div>`;
   const k = d.resort.links;
   const links = `<div class="links"><a href="${k.lifts}" target="_blank" rel="noopener">${t('lifts')} ↗</a><a href="${k.snow}" target="_blank" rel="noopener">${t('snowReport')} ↗</a><a href="${k.cams}" target="_blank" rel="noopener">${t('allCams')} ↗</a></div>`;
-  return card(`${esc(nm(d.name))} · ${t('outlook')}`, outlook) + card(t('resortCams'), cams) + card(t('official'), links);
+  return card('outlook', `${esc(nm(d.name))} · ${t('outlook')}`, outlook) + card('rcams', t('resortCams'), cams) + card('links', t('official'), links);
 }
 
 // ----- list -----
 function viewList() {
   const items = list.visible();
   const st = list.status();
-  return `<section class="card"><h2>${t('listTitle')}<button class="tag link ${st}" data-act="settings">${st === 'off' ? t('sync.setup') : t('sync.' + st)}</button></h2>
-    <p class="note">${t('listHint')}</p>
+  return card('list', t('listTitle'), `<p class="note">${t('listHint')}</p>
     <form class="add" data-form="add"><input id="newItem" autocomplete="off" maxlength="200" placeholder="${t('addPh')}" aria-label="${t('add')}"><button>${t('add')}</button></form>
     <ul class="todo">${items.map((i) => `<li class="${i.done ? 'done' : ''}"><label><input type="checkbox" data-change="toggle" data-v="${i.id}" ${i.done ? 'checked' : ''}><span>${esc(i.text)}</span></label><button class="x" data-act="del" data-v="${i.id}" aria-label="delete">×</button></li>`).join('') || `<li class="muted">${t('empty')}</li>`}</ul>
-    ${items.some((i) => i.done) ? `<button class="ghost" data-act="clearDone">${t('clearDone')}</button>` : ''}</section>`;
+    ${items.some((i) => i.done) ? `<button class="ghost" data-act="clearDone">${t('clearDone')}</button>` : ''}`, `<button class="tag link ${st}" data-act="settings">${st === 'off' ? t('sync.setup') : t('sync.' + st)}</button>`);
 }
 
 // ----- dialogs -----
@@ -392,6 +396,18 @@ document.addEventListener('click', (e) => {
     case 'settings': t = makeT(S.lang); return openSettings();
     case 'cam': return openCam(+v);
     case 'rcam': S.camsLoaded.add(+v); break;
+    case 'fold': {
+      const sec = b.closest('.card');
+      const open = folded.has(v);
+      open ? folded.delete(v) : folded.add(v);
+      store.set('folded', [...folded]);
+      sec.classList.toggle('collapsed', !open);
+      b.setAttribute('aria-expanded', open);
+      const body = sec.querySelector('.cbody');
+      if (!open && v === 'rcams') { S.camsLoaded.clear(); body.innerHTML = ''; } // stop the streams
+      if (open && !body.innerHTML.trim()) break; // was rendered collapsed: build it now
+      return;
+    }
     case 'del': list.remove(v); return;
     case 'clearDone': list.clearDone(); return;
     case 'drive': S.vehicle.drive = v; store.set('vehicle', S.vehicle); openSettings(); break;
