@@ -393,9 +393,10 @@ document.addEventListener('click', (e) => {
     case 'lang': setPref('lang', v); break;
     case 'tu': setPref('tu', v); break;
     case 'lu': setPref('lu', v); break;
-    case 'theme': { // one click always flips what is on screen; "match device" lives in settings
-      const dark = S.theme === 'dark' || (S.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
-      setPref('theme', dark ? 'light' : 'dark');
+    case 'theme': { // one click always flips what is on screen; landing on the device's own scheme resumes following it
+      const sysDark = matchMedia('(prefers-color-scheme: dark)').matches;
+      const dark = S.theme === 'dark' || (S.theme === 'auto' && sysDark);
+      setPref('theme', !dark === sysDark ? 'auto' : dark ? 'light' : 'dark');
       break;
     }
     case 'themeSet': setPref('theme', v); t = makeT(S.lang); openSettings(); break;
@@ -455,6 +456,10 @@ window.addEventListener('hashchange', () => {
 list.subscribe(() => { if (S.tab === 'list') { const typing = document.activeElement?.id === 'newItem' && $('#newItem').value; if (!typing) render(); } if ($('#dlg').open && $('#token') == null && $('#dlg h3')) openSettings(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadData(); if (list.hasToken()) list.sync(); } });
 setInterval(() => { if (!document.hidden) loadData(); }, 5 * 6e4);
+// If the device switches to the scheme that was pinned by hand, go back to following the device.
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+  if (S.theme === (e.matches ? 'dark' : 'light')) { setPref('theme', 'auto'); renderChrome(); }
+});
 
 render();
 loadData();
