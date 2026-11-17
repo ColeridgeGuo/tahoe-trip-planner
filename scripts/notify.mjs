@@ -12,6 +12,8 @@ import { makeT } from '../js/i18n.js';
 const FILE = 'tahoe-trip-alerts.json';
 const TZ = 'America/Los_Angeles';
 const CHAIN_WINDOW_MS = 24 * 36e5; // chain control is a live reading: only worth a push this close to leaving
+const START_WINDOW_MS = 3 * 36e5; // "alert is on" is only sent for a departure that was set this recently
+const RANK = { go: 0, caution: 1, nogo: 2 };
 const NEEDED = ['chain', 'closures', 'incidents', 'alerts', 'weather']; // sources the verdict rests on
 const b64u = (buf) => Buffer.from(buf).toString('base64url');
 
@@ -25,6 +27,7 @@ export function planState(data, dest, plan, vehicle, nowMs = Date.now()) {
   const worst = Math.max(...ev.factors.map((f) => LV[f.level]));
   return {
     level: ev.level,
+    drive: ev.drive.src !== 'fixed', // false: no TomTom time for this departure, the fixed estimate was used
     chain: chainFor(data, r.highway, ev.dir).max,
     why: worst > 0 ? ev.factors.filter((f) => LV[f.level] === worst).map((f) => f.key) : [],
   };
@@ -42,14 +45,22 @@ export function decide(told, cur, plan, dest, lang, nowMs = Date.now()) {
   const hw = `${r.label} ${t(dir === 'East' ? 'east' : 'west')}`;
   const why = cur.why.length ? '\n' + t('al.nWhy', { list: cur.why.map((k) => t('f.' + k)).join(lang === 'zh' ? '、' : ', ') }) : '';
   if (!told) {
-    return { title, body: t('al.nStart', { level: t(cur.level), hw, chain: chainName(cur.chain) }) + why, told: { level: cur.level, chain: cur.chain } };
+    const now = { level: cur.level, chain: cur.chain, drive: cur.drive };
+    // No record of this departure although it was set a while ago: the published state was lost (a failed
+    // run, a site outage). Take the current reading as the baseline quietly instead of announcing it again.
+    if (nowMs - (plan.setAt || 0) > START_WINDOW_MS) return { silent: true, told: now };
+    return { title, body: t('al.nStart', { level: t(cur.level), hw, chain: chainName(cur.chain) }) + why, told: now };
   }
+  // The drive time was part of the last verdict and is missing now (TomTom failed): an apparent improvement
+  // may only be the lost traffic delay, so it is not reported until drive times are back. Worse is still sent.
+  const blind = told.drive && !cur.drive && RANK[cur.level] < RANK[told.level];
+  const level = blind ? told.level : cur.level;
   const lines = [];
-  if (cur.level !== told.level) lines.push(t('al.nLevel', { a: t(told.level), b: t(cur.level) }));
+  if (level !== told.level) lines.push(t('al.nLevel', { a: t(told.level), b: t(level) }));
   const chainNow = plan.departMs - nowMs <= CHAIN_WINDOW_MS && cur.chain !== told.chain;
   if (chainNow) lines.push(t('al.nChain', { hw, a: chainName(told.chain), b: chainName(cur.chain) }));
   if (!lines.length) return null;
-  return { title, body: lines.join('\n') + why, told: { level: cur.level, chain: chainNow ? cur.chain : told.chain } };
+  return { title, body: lines.join('\n') + why, told: { level, chain: chainNow ? cur.chain : told.chain, drive: blind ? told.drive : cur.drive } };
 }
 
 // ---------- Web Push (RFC 8291 message encryption, RFC 8292 VAPID) ----------
@@ -115,21 +126,31 @@ const stateUrl = new URL('../data/alerts.json', import.meta.url);
 async function lastState() {
   const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
   if (owner && !process.env.ALERT_PLAN_FILE) {
-    const r = await fetch(`https://${owner.toLowerCase()}.github.io/${repo}/data/alerts.json?ts=${Date.now()}`, { signal: AbortSignal.timeout(20000) });
-    if (r.ok) return r.json();
-    if (r.status !== 404) throw new Error(`last state: HTTP ${r.status}`);
-    return {};
+    let err;
+    for (let i = 0; i < 3; i++) {
+      try {
+        const r = await fetch(`https://${owner.toLowerCase()}.github.io/${repo}/data/alerts.json?ts=${Date.now()}`, { signal: AbortSignal.timeout(20000) });
+        if (r.ok) return await r.json();
+        if (r.status === 404) return {};
+        err = new Error(`last state: HTTP ${r.status}`);
+      } catch (e) { err = e; }
+      await new Promise((s) => setTimeout(s, 2000 * (i + 1)));
+    }
+    throw err;
   }
   try { return JSON.parse(await readFile(stateUrl, 'utf8')); } catch { return {}; }
 }
 
 async function main() {
+  // The state file is rebuilt on every run and published with the site, so whatever happens below, the
+  // previous state has to be written back or the next run would find none.
+  const state = await lastState();
+  await writeFile(stateUrl, JSON.stringify(state));
   const cfg = await readPlan();
   if (cfg === undefined) return console.log('alerts: ALERT_GIST_ID not set, skipping');
   const now = Date.now();
   const plans = Object.entries(cfg?.plans || {}).map(([direction, p]) => ({ ...p, direction })).filter((p) => p.departMs > now);
   const subs = Object.entries(cfg?.subs || {});
-  const state = await lastState();
   const next = {};
   const [owner, repo] = (process.env.GITHUB_REPOSITORY || '/').split('/');
   const site = owner ? `https://${owner.toLowerCase()}.github.io/${repo}/` : 'http://localhost:8000/';
@@ -141,8 +162,9 @@ async function main() {
     const cur = planState(data, dest, plan, { ...DEFAULT_VEHICLE, ...cfg.vehicle }, now);
     if (!cur) { console.log(`alerts: ${plan.direction} skipped, a source failed on this run`); continue; }
     const msg = decide(state[key], cur, plan, dest, cfg.lang === 'en' ? 'en' : 'zh', now);
-    console.log(`alerts: ${plan.direction} in ${Math.round((plan.departMs - now) / 36e5)} h: ${cur.level}, chain ${cur.chain}${msg ? (state[key] ? ' -> changed, notifying' : ' -> first check, notifying') : ', no change'}`);
+    console.log(`alerts: ${plan.direction} in ${Math.round((plan.departMs - now) / 36e5)} h: ${cur.level}, chain ${cur.chain}${msg ? (state[key] ? ' -> changed, notifying' : msg.silent ? '' : ' -> first check, notifying') : ', no change'}`);
     if (!msg) continue;
+    if (msg.silent) { console.log(`alerts: ${plan.direction} had no saved state, recording the current one without notifying`); next[key] = msg.told; continue; }
     if (process.env.ALERT_DRY) { console.log(`--- ${msg.title}\n${msg.body}\n---`); next[key] = msg.told; continue; }
     let sent = 0;
     for (const [id, sub] of subs) {

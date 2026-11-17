@@ -14,6 +14,8 @@ const ls = {
 const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const unb64u = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
 
+const copy = (o) => JSON.parse(JSON.stringify(o));
+
 let device = ls.get('tr.dev');
 if (!device) { device = b64u(crypto.getRandomValues(new Uint8Array(9))); ls.set('tr.dev', device); }
 
@@ -74,6 +76,7 @@ export const alerts = {
   any: (nowMs = Date.now()) => Object.values(st.plans).some((p) => p.departMs > nowMs),
   // Must be called from a tap: the permission prompt is only allowed in response to one.
   async set(direction, plan, ctx) {
+    ctx = copy(ctx);
     if ((await Notification.requestPermission()) !== 'granted') { onChange(); throw new Error('denied'); }
     await save(() => {});
     setStatus('busy'); // still working: registering with the browser's push service can take a few seconds
@@ -96,6 +99,7 @@ export const alerts = {
   clear: (direction) => save((s) => { delete s.plans[direction]; }),
   // Language and vehicle decide the wording and the verdict, so keep the saved copy current while a plan is on.
   context(ctx) {
+    ctx = copy(ctx); // the page edits its vehicle object in place; keep our own copy so a change is seen
     if (JSON.stringify({ lang: st.lang, vehicle: st.vehicle }) === JSON.stringify(ctx)) return;
     Object.assign(st, ctx);
     ls.set(KEY, st);
