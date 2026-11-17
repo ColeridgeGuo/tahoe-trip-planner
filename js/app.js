@@ -120,7 +120,7 @@ async function liveChain() {
 }
 
 // ---------- rendering ----------
-const seg = (act, cur, opts) => `<div class="seg" role="group">${opts.map(([v, label]) => `<button data-act="${act}" data-v="${v}" class="${v === cur ? 'on' : ''}" aria-pressed="${v === cur}">${label}</button>`).join('')}</div>`;
+const seg = (act, cur, opts) => `<div class="seg" role="group">${opts.map(([v, label, tip]) => `<button data-act="${act}" data-v="${v}" class="${v === cur ? 'on' : ''}" aria-pressed="${v === cur}"${tip ? ` data-tip="${tip}" aria-label="${tip}"` : ''}>${label}</button>`).join('')}</div>`;
 const dot = (level) => `<span class="dot ${level}"></span>`;
 // Collapsible section. Collapsed sections render without their body, so hidden images and streams never load.
 const folded = new Set(store.get('folded', []));
@@ -138,9 +138,9 @@ function renderChrome() {
     ? `<select data-change="dest" aria-label="${t('dest')}">${DESTINATIONS.map((x) => `<option value="${x.id}" ${x.id === d.id ? 'selected' : ''}>${esc(nm(x.name))}</option>`).join('')}</select>${sub}`
     : `<strong>${esc(nm(d.name))}</strong>${sub}`) + '</span>';
   $('#toggles').innerHTML =
-    seg('lang', S.lang, [['zh', '中'], ['en', 'EN']]) + seg('tu', S.tu, [['C', '°C'], ['F', '°F']]) + seg('lu', S.lu, [['imp', 'in·ft'], ['met', 'cm·m']]) +
-    `<button class="icon" data-act="theme" title="${t('theme')}: ${t('th.' + S.theme)}" aria-label="${t('theme')}: ${t('th.' + S.theme)}">${{ auto: '<svg viewBox="0 0 16 16" style="width:.95rem;height:.95rem" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 1.8a6.2 6.2 0 0 1 0 12.4z" fill="currentColor"/></svg>', light: '☀', dark: '☾' }[S.theme]}</button>` +
-    `<button class="icon" data-act="refresh" title="${t('refresh')}" aria-label="${t('refresh')}">↻</button><button class="icon" data-act="settings" title="${t('settings')}" aria-label="${t('settings')}">⚙</button>`;
+    seg('lang', S.lang, [['zh', '中', t('tip.zh')], ['en', 'EN', t('tip.en')]]) + seg('tu', S.tu, [['C', '°C', t('tip.C')], ['F', '°F', t('tip.F')]]) + seg('lu', S.lu, [['imp', 'in·ft', t('tip.imp')], ['met', 'cm·m', t('tip.met')]]) +
+    `<button class="icon" data-act="theme" data-tip="${t('tip.theme', { cur: t('th.' + S.theme), next: t('th.' + { auto: 'light', light: 'dark', dark: 'auto' }[S.theme]) })}" aria-label="${t('theme')}: ${t('th.' + S.theme)}">${{ auto: '<svg viewBox="0 0 16 16" style="width:.95rem;height:.95rem" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 1.8a6.2 6.2 0 0 1 0 12.4z" fill="currentColor"/></svg>', light: '☀', dark: '☾' }[S.theme]}</button>` +
+    `<button class="icon" data-act="refresh" data-tip="${t('tip.refresh')}" aria-label="${t('refresh')}">↻</button><button class="icon" data-act="settings" data-tip="${t('tip.settings')}" aria-label="${t('settings')}">⚙</button>`;
   $('#tabs').innerHTML = TABS.map((k) => `<a href="#${k}" class="${k === S.tab ? 'on' : ''}" ${k === S.tab ? 'aria-current="page"' : ''}>${t('tabs.' + k)}</a>`).join('');
   const st = S.data
     ? `${t('dataAt')} ${fAgo(S.data.generatedAt)}${S.chainLiveAt ? ` · ${t('chainLive')} ${t('liveTag')} ${fAgo(S.chainLiveAt)}` : ''}`
