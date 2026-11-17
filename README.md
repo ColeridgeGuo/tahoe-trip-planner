@@ -4,8 +4,10 @@ A go / no-go dashboard for driving from the Bay Area to a Tahoe ski resort: chai
 
 ## How it works
 
-- `scripts/fetch.mjs` pulls Caltrans (chain control, lane closures, cameras), CHP incidents and NWS gridded forecasts and alerts, and writes `data/<destination>.json`.
-- `.github/workflows/deploy.yml` runs that script every 15 minutes and publishes the site to GitHub Pages. Nothing is committed back to the repo.
+- `scripts/fetch.mjs` pulls Caltrans (chain control, lane closures, cameras), CHP incidents, NWS gridded forecasts and alerts, and TomTom drive times, and writes `data/<destination>.json`.
+- `.github/workflows/deploy.yml` runs that script and publishes the site to GitHub Pages. Nothing is committed back to the repo.
+- The workflow has no schedule of its own. An external cron-job triggers it every 15 minutes through `workflow_dispatch`, because GitHub's built-in scheduler runs late and unevenly.
+- Drive times come from TomTom (`TOMTOM_KEY` secret): live on every run, hourly for the next 24 h (refreshed hourly), and every 2 h out to 7 days (refreshed every 12 h). That is about 1,640 of the 2,500 free requests a day.
 - If a source fails on a run, its last good data is carried over from the previously published file (up to 24 h) and the page shows how old it is.
 - The page additionally reads chain control straight from Caltrans on every load, so that part is always live.
 - The checklist is stored in the browser and can sync through a private GitHub Gist (Settings → paste a token with only the `gist` scope).
@@ -13,9 +15,9 @@ A go / no-go dashboard for driving from the Bay Area to a Tahoe ski resort: chai
 ## Setup
 
 1. Repo → Settings → Pages → Source: **GitHub Actions**.
-2. Push to `main`. The first run deploys the site.
-
-GitHub pauses scheduled workflows after 60 days without repo activity; re-enable under the Actions tab if that happens.
+2. Repo → Settings → Secrets and variables → Actions: add `TOMTOM_KEY` (optional; without it the page uses a fixed drive time).
+3. Push to `main`. The first run deploys the site.
+4. Point an external cron-job at the workflow's `workflow_dispatch` endpoint (`POST /repos/<owner>/<repo>/actions/workflows/deploy.yml/dispatches` with `{"ref":"main"}` and a token that has Actions write access), every 15 minutes.
 
 ## Run locally
 
