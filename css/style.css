@@ -202,3 +202,25 @@ footer{max-width:60rem;margin:auto;padding:0.25rem 1.25rem 1rem;font-size:0.7188
 .icon svg{width:1rem;height:1rem;display:block}
 /* phone: header controls span the full row, evenly spaced */
 @media (max-width:719px){#toggles{width:100%;justify-content:space-between;flex-wrap:nowrap}}
+
+/* map */
+#map{height:24rem;border-radius:0.625rem;overflow:hidden;background:var(--soft);isolation:isolate;margin-top:0.5rem;font:inherit}
+@media (max-width:719px){#map{height:19rem}}
+.chips button{cursor:pointer}
+.lg{display:inline-block;width:1.1rem;height:0.3rem;border-radius:0.2rem;vertical-align:middle;margin-right:0.35rem;background:var(--mute)}
+.lg.ok{background:var(--ok)}.lg.caution{background:var(--caution)}.lg.nogo{background:var(--nogo)}
+.mk{display:grid;place-items:center;width:0.8rem;height:0.8rem;margin:-0.4rem 0 0 -0.4rem;border-radius:50%;border:2px solid var(--card);background:var(--mute);color:#fff;font-size:0.625rem;font-weight:700;line-height:1;box-sizing:border-box}
+.mk-cc.ok{background:var(--ok)}.mk.caution{background:var(--caution)}.mk.nogo{background:var(--nogo)}
+.mk-cc.big{width:1.7rem;height:1.7rem;margin:-0.85rem 0 0 -0.85rem;font-size:0.6875rem}
+.mk-inc{width:1.15rem;height:1.15rem;margin:-0.575rem 0 0 -0.575rem;border-radius:0.3rem}
+.mk-cl{border-radius:0.15rem;background:var(--caution)}
+.mk-cam{background:var(--accent);width:0.65rem;height:0.65rem;margin:-0.325rem 0 0 -0.325rem}
+#map.leaflet-container{font:inherit;background:var(--soft)}
+#map.leaflet-container a{color:var(--accent)}
+#map .leaflet-popup-content-wrapper,#map .leaflet-popup-tip{background:var(--card);color:var(--ink);box-shadow:0 2px 12px #0005}
+#map .leaflet-popup-content{margin:0.65rem 0.8rem;font-size:0.8125rem;line-height:1.45}
+.popcam{display:block;width:15rem;max-width:100%;border-radius:0.4rem;margin-top:0.4rem;aspect-ratio:4/3;object-fit:cover;background:var(--soft)}
+#map .leaflet-bar a,#map .leaflet-bar a:hover{background:var(--card);color:var(--ink);border-color:var(--line)}
+#map .leaflet-control-attribution{background:color-mix(in srgb,var(--card) 80%,transparent)!important;color:var(--mute);font-size:0.625rem}
+#map .mk{display:grid}
+#map.invert .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.88) saturate(0.7)}

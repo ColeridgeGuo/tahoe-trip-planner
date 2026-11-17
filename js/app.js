@@ -1,4 +1,4 @@
-import { DESTINATIONS, DEFAULT_VEHICLE } from './config.js';
+import { DESTINATIONS, DEFAULT_VEHICLE, CARTO_KEY } from './config.js';
 import { CC_URL, normalizeChain } from './normalize.js';
 import { makeT } from './i18n.js';
 import { list } from './sync.js';
@@ -28,6 +28,7 @@ const S = {
   error: null,
   chainLiveAt: null,
   camsLoaded: new Set(),
+  mapShow: { inc: true, clos: false, cams: false, ...store.get('mapShow', {}) },
 };
 let t = makeT(S.lang);
 const dest = () => DESTINATIONS.find((d) => d.id === S.destId) || DESTINATIONS[0];
@@ -161,7 +162,93 @@ function render() {
   renderChrome();
   const m = $('#main');
   if (!S.data) { m.innerHTML = `<p class="muted pad">${S.error ? `${t('loadFail')}: ${esc(S.error)}` : t('loading')}</p>`; if (S.tab === 'list') m.innerHTML = viewList(); return; }
+  // Keep the live map element across re-renders so tiles and the current view are not thrown away.
+  const keep = MAP.map ? $('#map') : null;
   m.innerHTML = { verdict: viewVerdict, weather: viewWeather, roads: viewRoads, wear: viewWear, resort: viewResort, list: viewList }[S.tab]();
+  const slot = $('#map');
+  if (slot && keep) { slot.replaceWith(keep); drawMap(); } else if (slot) initMap(); else destroyMap();
+}
+
+// ----- map (Leaflet, loaded only when the roads tab needs it) -----
+const MAP = { map: null, tiles: null, tileKind: null, overlay: null, route: null, routeId: null, loading: null };
+const isDark = () => S.theme === 'dark' || (S.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+function loadLeaflet() {
+  if (window.L) return Promise.resolve();
+  return (MAP.loading ||= new Promise((res, rej) => {
+    const css = Object.assign(document.createElement('link'), { rel: 'stylesheet', href: 'js/vendor/leaflet.css' });
+    const js = Object.assign(document.createElement('script'), { src: 'js/vendor/leaflet.js', onload: res, onerror: rej });
+    document.head.append(css, js);
+  }));
+}
+function destroyMap() {
+  if (MAP.map) MAP.map.remove();
+  MAP.map = MAP.tiles = MAP.tileKind = MAP.overlay = null;
+}
+async function initMap() {
+  const el = $('#map');
+  const id = S.destId;
+  try {
+    await loadLeaflet();
+    if (MAP.routeId !== id) { MAP.route = (await import(`./routes/${id}.js`)).default; MAP.routeId = id; }
+  } catch (e) {
+    console.warn('map', e);
+    if ($('#map')) $('#map').innerHTML = `<p class="muted pad">${t('mapFail')}</p>`;
+    return;
+  }
+  if ($('#map') !== el || MAP.map || S.destId !== id) return; // page moved on while loading
+  const LF = window.L;
+  MAP.map = LF.map(el, { scrollWheelZoom: false, zoomSnap: 0.5 }).fitBounds(dest().route.mapFocus);
+  MAP.map.attributionControl.setPrefix('');
+  MAP.map.on('click', () => MAP.map.scrollWheelZoom.enable());
+  el.addEventListener('mouseleave', () => MAP.map?.scrollWheelZoom.disable());
+  MAP.overlay = LF.layerGroup().addTo(MAP.map);
+  drawMap();
+}
+function drawMap() {
+  const LF = window.L;
+  const { map, route } = MAP;
+  if (!map || !S.data) return;
+  map.invalidateSize();
+  const kind = isDark() ? 'dark' : 'light';
+  if (MAP.tileKind !== kind) {
+    MAP.tiles?.remove();
+    // Light: OpenStreetMap. Dark: CARTO dark tiles if a key is configured (they are watermarked without one),
+    // otherwise the same OSM tiles colour-inverted in CSS.
+    const osm = '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+    const cartoDark = kind === 'dark' && CARTO_KEY;
+    MAP.tiles = (cartoDark
+      ? LF.tileLayer(`https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=${CARTO_KEY}`, { subdomains: 'abcd', maxZoom: 18, attribution: `${osm} © <a href="https://carto.com/attributions">CARTO</a>` })
+      : LF.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: osm })
+    ).addTo(map);
+    map.getContainer().classList.toggle('invert', kind === 'dark' && !cartoDark);
+    MAP.tileKind = kind;
+  }
+  const g = MAP.overlay.clearLayers();
+  const css = getComputedStyle(document.documentElement);
+  const col = (lv) => css.getPropertyValue(lv >= 3 ? '--nogo' : lv >= 1 ? '--caution' : '--ok').trim();
+  const r = dest().route;
+  const dir = S.direction === 'out' ? r.outboundDir : r.returnDir;
+  const pop = (title, lines) => `<b>${esc(title)}</b>${lines.filter(Boolean).map((x) => `<br>${x}`).join('')}`;
+  const mark = (lat, lon, cls, label, html, z = 0) => LF.marker([lat, lon], { icon: LF.divIcon({ className: `mk ${cls}`, html: label, iconSize: null }), zIndexOffset: z }).bindPopup(html, { maxWidth: 260 }).addTo(g);
+
+  LF.polyline(route, { color: css.getPropertyValue('--accent').trim(), weight: 4, opacity: 0.55 }).addTo(g);
+
+  // Chain control: colour the stretch from each active checkpoint to the next one in the direction of travel.
+  const nearest = (lat, lon) => { let b = 0, bd = Infinity; route.forEach(([a, o], i) => { const d = (a - lat) ** 2 + ((o - lon) * 0.78) ** 2; if (d < bd) { bd = d; b = i; } }); return b; };
+  const cps = L.chainFor(S.data, r.highway, dir).rows.map((c) => ({ ...c, i: nearest(c.lat, c.lon) })).sort((a, b) => (S.direction === 'out' ? a.i - b.i : b.i - a.i));
+  cps.forEach((c, k) => {
+    const next = cps[k + 1];
+    if (c.level > 0 && next && next.i !== c.i) LF.polyline(route.slice(Math.min(c.i, next.i), Math.max(c.i, next.i) + 1), { color: col(c.level), weight: 7, opacity: 0.95 }).addTo(g);
+  });
+  for (const c of cps) {
+    const name = c.name.replace(/\s*\((unselect|holding)[^)]*\)/i, '');
+    const label = c.level === 4 ? '✕' : c.level > 0 ? 'R' + c.level : '';
+    mark(c.lat, c.lon, `mk-cc ${c.level >= 3 ? 'nogo' : c.level > 0 ? 'caution' : 'ok'} ${c.level > 0 ? 'big' : ''}`, label,
+      pop(name, [c.level > 0 ? esc(c.desc) : t('mapNone'), `<span class="muted">${c.elevFt ? fElev(c.elevFt / 3.28084) + ' · ' : ''}${esc(c.at)}</span>`]), c.level > 0 ? 500 : 0);
+  }
+  if (S.mapShow.inc) for (const x of S.data.incidents) mark(x.lat, x.lon, `mk-inc ${/collision|closure|sigalert|fatal|spin/i.test(x.type) ? 'caution' : ''}`, '!', pop(x.type, [esc(x.loc), x.time ? `<span class="muted">${fTime(x.time)} · ${esc(x.area)}</span>` : '', ...x.details.map(esc)]), 300);
+  if (S.mapShow.clos) for (const k of S.data.closures) if (k.lat && !L.isRamp(k)) mark(k.lat, k.lon, `mk-cl ${L.isFull(k) ? 'nogo' : ''}`, '', pop(`${k.from} → ${k.to}`, [esc(`${k.type} · ${k.work}`), `<span class="muted">${fWhen(k.start)} ${t('until')} ${k.end ? fWhen(k.end) : t('indefinite')}</span>`]), 100);
+  if (S.mapShow.cams) S.data.cams.forEach((c) => mark(c.lat, c.lon, 'mk-cam', '', `<b>${esc(c.name)}</b><img class="popcam" alt="" src="${esc(c.img)}?t=${Math.floor(Date.now() / 3e5)}">`, 50));
 }
 // Background refreshes must not reload live streams or steal focus from the list input.
 function softRender() {
@@ -288,8 +375,11 @@ function viewRoads() {
   const dir = S.direction === 'out' ? r.outboundDir : r.returnDir;
   const c = L.chainFor(S.data, r.highway, dir);
   const dirLabel = t(dir === 'East' ? 'east' : 'west');
-  const chain = `<div class="controls">${seg('direction', S.direction, [['out', `${t('out')} · ${t(r.outboundDir === 'East' ? 'east' : 'west')}`], ['back', `${t('back')} · ${t(r.returnDir === 'East' ? 'east' : 'west')}`]])}</div>
-    <ul class="rows">${c.rows.map((x) => `<li>${rBadge(x.level, x.status)}<div><b>${esc(x.name.replace(/\s*\((unselect|holding)[^)]*\)/i, ''))}</b><small>${x.elevFt ? fElev(x.elevFt / 3.28084) + ' · ' : ''}${esc(x.at)}</small>${x.level !== 0 ? `<p>${esc(x.desc)}</p>` : ''}</div></li>`).join('') || `<li class="muted">${t('noData')}</li>`}</ul>`;
+  const dirSeg = `<div class="controls">${seg('direction', S.direction, [['out', `${t('out')} · ${t(r.outboundDir === 'East' ? 'east' : 'west')}`], ['back', `${t('back')} · ${t(r.returnDir === 'East' ? 'east' : 'west')}`]])}</div>`;
+  const lay = (k, label) => `<button data-act="mapLayer" data-v="${k}" class="${S.mapShow[k] ? 'on' : ''}" aria-pressed="${S.mapShow[k]}">${label}</button>`;
+  const mapHtml = `<div class="chips">${lay('inc', t('mapInc'))}${lay('clos', t('mapClos'))}${lay('cams', t('mapCams'))}</div><div id="map"></div>
+    <div class="legend"><span><i class="lg ok"></i>${t('mapNone')}</span><span><i class="lg caution"></i>R1 / R2</span><span><i class="lg nogo"></i>${t('mapClosed')}</span></div><p class="note">${t('mapNote')}</p>`;
+  const chain = `<ul class="rows">${c.rows.map((x) => `<li>${rBadge(x.level, x.status)}<div><b>${esc(x.name.replace(/\s*\((unselect|holding)[^)]*\)/i, ''))}</b><small>${x.elevFt ? fElev(x.elevFt / 3.28084) + ' · ' : ''}${esc(x.at)}</small>${x.level !== 0 ? `<p>${esc(x.desc)}</p>` : ''}</div></li>`).join('') || `<li class="muted">${t('noData')}</li>`}</ul>`;
 
   const alts = `<ul class="rows">${r.alternates.map((a) => {
     const x = L.chainFor(S.data, a.highway, dir);
@@ -314,7 +404,7 @@ function viewRoads() {
   const cams = `<p class="note">${t('camHint')}</p><div class="cams">${S.data.cams.map((x, i) => `<button class="cam" data-act="cam" data-v="${i}"><img loading="lazy" alt="${esc(x.name)}" src="${esc(x.img)}?t=${bust}"><span>${esc(x.name)}<small>${x.elevFt ? fElev(x.elevFt / 3.28084) : ''}</small></span></button>`).join('')}</div>`;
 
   const st = (k) => (S.data.status[k]?.ok === false ? `<span class="tag bad">${t('loadFail')}</span>` : '');
-  return card('chain', `${r.label} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? t('liveTag') : fAgo(S.data.generatedAt)}</span>${st('chain')}`) +
+  return dirSeg + card('map', `${r.label} ${t('mapTitle')}`, mapHtml) + card('chain', `${r.label} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? t('liveTag') : fAgo(S.data.generatedAt)}</span>${st('chain')}`) +
     card('alts', t('altTitle'), alts) + card('inc', t('incTitle'), inc, st('incidents')) + card('clos', t('closTitle'), clos, st('closures')) + card('cams', t('camTitle'), cams, st('cams')) + `<p class="note pad0">${t('srcTextNote')} · ${t('chainDir', { dir: dirLabel })}</p>`;
 }
 
@@ -408,6 +498,7 @@ document.addEventListener('click', (e) => {
     case 'settings': t = makeT(S.lang); return openSettings();
     case 'cam': return openCam(+v);
     case 'rcam': S.camsLoaded.add(+v); break;
+    case 'mapLayer': S.mapShow[v] = !S.mapShow[v]; store.set('mapShow', S.mapShow); break;
     case 'fold': {
       const sec = b.closest('.card');
       const open = folded.has(v);
@@ -417,6 +508,7 @@ document.addEventListener('click', (e) => {
       sec.querySelector('.fold').setAttribute('aria-expanded', open);
       const body = sec.querySelector('.cbody');
       if (!open && v === 'rcams') { S.camsLoaded.clear(); body.innerHTML = ''; } // stop the streams
+      if (!open && v === 'map') { destroyMap(); body.innerHTML = ''; }
       if (open && !body.innerHTML.trim()) break; // was rendered collapsed: build it now
       return;
     }
@@ -434,7 +526,7 @@ document.addEventListener('change', (e) => {
   if (!el) return;
   switch (el.dataset.change) {
     case 'day': S.depart = { day: el.value, h: S.depart === 'now' ? 8 : S.depart.h }; break;
-    case 'dest': setPref('destId', el.value); store.set('dest', el.value); S.data = null; S.chainLiveAt = null; S.camsLoaded.clear(); loadData(); break;
+    case 'dest': destroyMap(); setPref('destId', el.value); store.set('dest', el.value); S.data = null; S.chainLiveAt = null; S.camsLoaded.clear(); loadData(); break;
     case 'toggle': list.toggle(el.dataset.v); return;
     case 'veh': S.vehicle[el.dataset.v] = el.checked; store.set('vehicle', S.vehicle); break;
     default: return;
@@ -459,6 +551,7 @@ setInterval(() => { if (!document.hidden) loadData(); }, 5 * 6e4);
 // If the device switches to the scheme that was pinned by hand, go back to following the device.
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
   if (S.theme === (e.matches ? 'dark' : 'light')) { setPref('theme', 'auto'); renderChrome(); }
+  drawMap();
 });
 
 render();

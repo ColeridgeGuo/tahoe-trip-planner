@@ -17,7 +17,8 @@ export const DESTINATIONS = [
       label: 'US-50',
       highway: 'US-50',
       driveHours: 3.75,
-      distanceKm: 306,
+      distanceKm: 335,
+      mapFocus: [[38.68, -120.86], [38.97, -119.9]], // default map view: the mountain section
       outboundDir: 'East',
       returnDir: 'West',
       points: [
@@ -63,3 +64,6 @@ export const DESTINATIONS = [
 ];
 
 export const DEFAULT_VEHICLE = { drive: 'awd', snowTires: true, chains: true, ev: true };
+
+// Optional CARTO Basemaps key for the dark map style. Empty = dark mode uses colour-inverted OpenStreetMap tiles.
+export const CARTO_KEY = '';
