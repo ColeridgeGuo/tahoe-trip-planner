@@ -29,8 +29,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Fetch Caltrans, CHP and NWS data
+      - name: Fetch Caltrans, CHP, NWS and TomTom data
         run: node scripts/fetch.mjs
+        env:
+          TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
       - name: Assemble site
         run: |
           mkdir _site

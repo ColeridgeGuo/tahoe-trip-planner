@@ -52,6 +52,12 @@ const fRain = (mm) => (mm == null ? '–' : S.lu === 'imp' ? (mm / 25.4).toFixed
 const fElev = (m) => (m == null ? '–' : S.lu === 'imp' ? (Math.round((m * 3.28084) / 100) * 100).toLocaleString('en-US') + ' ft' : (Math.round(m / 50) * 50).toLocaleString('en-US') + ' m');
 const fWind = (k) => (k == null ? '–' : S.lu === 'imp' ? Math.round(k / 1.609) + ' mph' : Math.round(k) + ' km/h');
 const fDist = (km) => (S.lu === 'imp' ? Math.round(km / 1.609) + ' mi' : Math.round(km) + ' km');
+function fDur(sec, short) {
+  const m = Math.round(sec / 60);
+  const h = Math.floor(m / 60);
+  if (short) return `${h}:${String(m % 60).padStart(2, '0')}`;
+  return S.lang === 'zh' ? `${h} 小时 ${m % 60} 分` : `${h} h ${m % 60} min`;
+}
 const fTime = (ms) => new Intl.DateTimeFormat(loc(), { timeZone: TZ, hour: 'numeric', minute: '2-digit', hour12: S.lang !== 'zh' }).format(ms);
 const fHour = (h) => (S.lang === 'zh' ? `${h}时` : `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`);
 const fDayMs = (ms) => new Intl.DateTimeFormat(loc(), { timeZone: TZ, weekday: 'short', month: 'numeric', day: 'numeric' }).format(ms);
@@ -290,7 +296,13 @@ function factorText(f) {
       if (!Array.isArray(v) || !v.length) return t('m.' + f.msg);
       return v.map((a) => `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(alertName(a.event))}</a> <span class="muted">${fWhen(a.onset)} – ${fWhen(a.ends)}</span>`).join('<br>');
     case 'wind': return t('m.' + f.msg, { v: fWind(v) });
-    case 'lift': return t('m.' + f.msg, { v: fWind(v.gust), day: fDay(L.dayKey(departMs() + (d.route.driveHours + 6) * 36e5)) });
+    case 'lift': return t('m.' + f.msg, { v: fWind(v.gust), day: fDay(v.day) });
+    case 'drive': {
+      if (!v) return t('m.' + f.msg, { v: fDur(d.route.driveHours * 3600) });
+      const dm = v.deltaMin;
+      const cmp = dm == null ? '' : Math.abs(dm) < 5 ? t(v.vs === 'usual' ? 'm.driveSame' : 'm.driveFree') : t(`m.drive${dm > 0 ? 'More' : 'Less'}${v.vs === 'usual' ? 'Usual' : 'Free'}`, { d: Math.abs(dm) });
+      return t('m.' + f.msg, { v: fDur(v.sec) }) + cmp;
+    }
     case 'ev': return t('m.' + f.msg, { v: fT(v) });
     case 'fresh': return t('m.' + f.msg, { v: fAgo(Date.now() - v * 6e4).replace(/前$| ago$/, '') });
     default: return '';
@@ -317,21 +329,22 @@ function viewVerdict() {
     <div class="route">${esc(nm(ends[0].name))} → ${esc(nm(ends[1].name))}</div>
     <h1>${t(ev.level)}</h1>
     <p>${t(ev.level + 'Sub')}</p>
-    <div class="times"><span>${t('departAt')} <b>${fWhen(dm)}</b></span><span>${t('arriveAt')} <b>${fTime(dm + d.route.driveHours * 36e5)}</b></span></div>
+    <div class="times"><span>${t('departAt')} <b>${fWhen(dm)}</b></span><span>${t('arriveAt')} <b>${fTime(ev.endMs)}</b></span>${ev.drive.src === 'fixed' ? '' : `<span>${t('driveLabel')} <b>${fDur(ev.drive.sec)}</b></span>`}</div>
   </section>`;
 
   const order = { nogo: 0, caution: 1, ok: 2, info: 3 };
   const factors = [...ev.factors].sort((a, b) => order[a.level] - order[b.level]).map((f) => {
-    const tag = ['chain', 'incidents'].includes(f.key) ? t('liveTag') : ['snow', 'alerts', 'wind', 'lift', 'ev'].includes(f.key) ? t('fcTag') : '';
-    const link = { chain: '#roads', closures: '#roads', incidents: '#roads', snow: '#weather', lift: '#resort' }[f.key];
+    const tag = ['chain', 'incidents'].includes(f.key) || f.msg === 'driveLive' ? t('liveTag') : f.msg === 'driveFc' ? t('fcTag') : ['snow', 'alerts', 'wind', 'lift', 'ev'].includes(f.key) ? t('fcTag') : '';
+    const link = { chain: '#roads', closures: '#roads', incidents: '#roads', snow: '#weather', lift: '#resort', drive: '#roads' }[f.key];
     return `<li class="${f.level}">${dot(f.level)}<div><div class="ft">${t('f.' + f.key)}${tag ? `<span class="tag">${tag}</span>` : ''}${link ? `<a class="more" href="${link}">›</a>` : ''}</div><div class="fm">${factorText(f)}</div></div></li>`;
   }).join('');
 
+  const hasDrive = strip.some((x) => x.drive && !x.past);
   const stripHtml = `<div class="strip" role="group">${strip.map((s) => {
     const sel = pick ? S.depart.h === s.h : L.hourOf(dm) === s.h;
-    return `<button data-act="hour" data-v="${s.h}" class="${s.past ? 'past' : s.level} ${sel ? 'sel' : ''}" ${s.past ? 'disabled' : ''} title="${fHour(s.h)}"><i></i><span>${s.h % 3 === 0 ? fHour(s.h) : ''}</span></button>`;
+    return `<button data-act="hour" data-v="${s.h}" class="${s.past ? 'past' : s.level} ${sel ? 'sel' : ''}" ${s.past ? 'disabled' : ''} title="${fHour(s.h)}"><i></i><span>${s.h % 3 === 0 ? fHour(s.h) : ''}</span>${hasDrive ? `<span class="dr">${s.h % 3 === 0 && s.drive && !s.past ? fDur(s.drive.sec, true) : ''}</span>` : ''}</button>`;
   }).join('')}</div>
-  <p class="note"><b>${win ? `${t('bestWin')}: ${fHour(win.from)} – ${fHour(win.to + 1)}` : t('noWin')}</b> · ${t('stripHint')}</p>`;
+  <p class="note"><b>${win ? `${t('bestWin')}: ${fHour(win.from)} – ${fHour(win.to + 1)}` : t('noWin')}</b> · ${t('stripHint')}${hasDrive ? ' ' + t('stripDrive') : ''}</p>`;
 
   const along = `<div class="tablewrap"><table><thead><tr><th></th><th>${t('time')}</th><th>${t('temp')}</th><th>${t('snowRate')}</th><th>${t('snowLevel')}</th><th>${t('gust')}</th></tr></thead><tbody>${ev.stops.map((s) => `<tr>
       <th>${esc(nm(s.point.name))}<small>${fElev(s.elevM)}</small></th><td>${fTime(s.ms)}</td>${s.missing ? `<td colspan="4" class="muted">${t('noData')}</td>` : `<td>${fT0(s.temp)}</td><td class="${s.snow >= L.TH.snowHeavy ? 'bad' : s.snow >= L.TH.snowLight ? 'warn' : ''}">${s.snow > 0 ? fSnow(s.snow) + '/h' : s.qpf > 0.1 ? '🌧' : '–'}</td><td>${fElev(s.snowLevel)}</td><td>${fWind(s.gust)}</td>`}</tr>`).join('')}</tbody></table></div>`;

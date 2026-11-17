@@ -38,13 +38,35 @@ export function offsetFor(route, point, direction) {
   return direction === 'out' ? point.offsetH : route.driveHours - point.offsetH;
 }
 
+// How long the drive takes for a given departure: live TomTom time if leaving about now, the hourly
+// forecast if leaving within the next day, otherwise the route's fixed estimate.
+export function driveTime(data, dest, departMs, direction, nowMs = Date.now()) {
+  const fixed = { hours: dest.route.driveHours, src: 'fixed' };
+  const d = data.drive;
+  if (!d || !d[direction]) return fixed;
+  if (departMs - nowMs < 30 * 6e4 && nowMs - d.at < 45 * 6e4) {
+    const x = d[direction];
+    const base = x.historicSec ?? x.noTrafficSec;
+    return { hours: x.sec / 3600, src: 'live', sec: x.sec, deltaMin: base ? Math.round((x.sec - base) / 60) : null, vs: x.historicSec ? 'usual' : 'free' };
+  }
+  const h = d.hourly?.[direction] || [];
+  const i = h.findIndex((x) => x.ms > departMs);
+  const a = i > 0 ? h[i - 1] : i === 0 ? h[0] : h[h.length - 1];
+  const b = i > 0 ? h[i] : a;
+  if (!a || Math.abs(a.ms - departMs) > 60 * 6e4) return fixed;
+  const f = b.ms === a.ms ? 0 : Math.min(1, Math.max(0, (departMs - a.ms) / (b.ms - a.ms)));
+  const sec = a.sec + (b.sec - a.sec) * f;
+  const free = a.noTrafficSec;
+  return { hours: sec / 3600, src: 'forecast', sec, deltaMin: free ? Math.round((sec - free) / 60) : null, vs: 'free' };
+}
+
 // Conditions at each route point at the moment you'd drive through it.
-export function alongRoute(data, dest, departMs, direction) {
+export function alongRoute(data, dest, departMs, direction, hours = dest.route.driveHours) {
   const r = dest.route;
   const pts = r.points.filter((p) => p.offsetH != null);
   const ordered = direction === 'out' ? pts : [...pts].reverse();
   return ordered.map((p) => {
-    const ms = departMs + offsetFor(r, p, direction) * 36e5;
+    const ms = departMs + offsetFor(r, p, direction) * (hours / r.driveHours) * 36e5;
     const i = idx(data, ms);
     const w = data.weather[p.id];
     return {
@@ -63,9 +85,9 @@ export function alongRoute(data, dest, departMs, direction) {
 }
 
 // Forecast-only factors for a given departure. Used for the verdict and the hour-by-hour strip.
-export function forecastFactors(data, dest, departMs, direction) {
+export function forecastFactors(data, dest, departMs, direction, hours = dest.route.driveHours) {
   const r = dest.route;
-  const stops = alongRoute(data, dest, departMs, direction);
+  const stops = alongRoute(data, dest, departMs, direction, hours);
   const mtn = stops.filter((s) => r.mountainPoints.includes(s.point.id));
   const factors = [];
 
@@ -89,7 +111,7 @@ export function forecastFactors(data, dest, departMs, direction) {
   else factors.push({ key: 'snow', level: 'ok', msg: peak.rate > 0 ? 'snowTrace' : 'snowNone', v: peak });
 
   // NWS alerts overlapping the drive.
-  const endMs = departMs + r.driveHours * 36e5;
+  const endMs = departMs + hours * 36e5;
   const active = data.alerts.filter((a) => a.onset < endMs && a.ends > departMs);
   let aLevel = 'ok';
   for (const a of active) {
@@ -135,7 +157,8 @@ export function evaluate(data, dest, opts) {
   const { departMs, direction, vehicle, nowMs = Date.now() } = opts;
   const r = dest.route;
   const dir = direction === 'out' ? r.outboundDir : r.returnDir;
-  const endMs = departMs + r.driveHours * 36e5;
+  const dt = driveTime(data, dest, departMs, direction, nowMs);
+  const endMs = departMs + dt.hours * 36e5;
   const live = departMs - nowMs <= TH.liveHorizonH * 36e5;
   const st = data.status || {};
   const factors = [];
@@ -169,12 +192,18 @@ export function evaluate(data, dest, opts) {
 
   // 4-6. Forecast for the drive window
   if (!src('alerts')) factors.push({ key: 'alerts', level: 'caution', msg: 'srcFailed' });
-  const fc = forecastFactors(data, dest, departMs, direction);
+  const fc = forecastFactors(data, dest, departMs, direction, dt.hours);
   for (const f of fc.factors) if (f.key !== 'alerts' || src('alerts')) factors.push(f);
+
+  // Drive time (TomTom). Only an unusually slow drive changes the verdict.
+  if (st.drive?.ok === false) factors.push({ key: 'drive', level: 'info', msg: 'driveFailed' });
+  else if (dt.src !== 'fixed') factors.push({ key: 'drive', level: dt.deltaMin >= 60 ? 'caution' : 'ok', msg: dt.src === 'live' ? 'driveLive' : 'driveFc', v: dt });
 
   // 7. Lift wind-hold risk on the ski day (arrival day for outbound trips)
   if (direction === 'out') {
-    const lift = liftRisk(data, dest, dayKey(endMs + 6 * 36e5));
+    const liftDay = dayKey(endMs + 6 * 36e5);
+    const lift = liftRisk(data, dest, liftDay);
+    if (lift) lift.day = liftDay;
     if (lift) factors.push({ key: 'lift', level: lift.level === 'high' ? 'caution' : 'ok', msg: `lift_${lift.level}`, v: lift });
   }
 
@@ -190,14 +219,21 @@ export function evaluate(data, dest, opts) {
   if (ageMin > TH.staleMin) factors.push({ key: 'fresh', level: 'caution', msg: 'stale', v: ageMin });
 
   const level = factors.reduce((l, f) => worst(l, f.level), 'ok');
-  return { level: level === 'ok' ? 'go' : level, factors, stops: fc.stops, live, dir };
+  return { level: level === 'ok' ? 'go' : level, factors, stops: fc.stops, live, dir, drive: dt, endMs };
 }
 
 // Hour-by-hour departure risk for one day, forecast-only.
 export function departureStrip(data, dest, ix, day, direction, nowMs = Date.now()) {
-  return ix.hours
-    .filter((h) => h.day === day)
-    .map((h) => ({ ...h, past: h.ms + 36e5 <= nowMs, level: forecastFactors(data, dest, h.ms, direction).level }));
+  // Always 24 columns: hours earlier today that the forecast no longer covers are shown as past.
+  const have = ix.hours.filter((h) => h.day === day);
+  const first = have[0];
+  const lead = first ? Array.from({ length: first.h }, (_, h) => ({ i: -1, ms: first.ms - (first.h - h) * 36e5, day, h })) : [];
+  return [...lead, ...have]
+    .map((h) => {
+      if (h.i < 0) return { ...h, past: true, level: 'ok', drive: null };
+      const dt = driveTime(data, dest, Math.max(h.ms, nowMs), direction, nowMs);
+      return { ...h, past: h.ms + 36e5 <= nowMs, level: forecastFactors(data, dest, h.ms, direction, dt.hours).level, drive: dt.src === 'fixed' ? null : dt };
+    });
 }
 export function bestWindow(strip, from = 5, to = 21) {
   const ok = strip.filter((s) => !s.past && s.h >= from && s.h <= to);

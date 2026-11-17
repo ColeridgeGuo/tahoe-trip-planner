@@ -213,6 +213,61 @@ async function alerts(points) {
   return [...seen.values()].sort((a, b) => a.onset - b.onset);
 }
 
+// ---------- TomTom drive times ----------
+// The key comes from the TOMTOM_KEY secret. Errors are built without the request URL so the key can never
+// end up in the published JSON or the logs.
+const TT_KEY = process.env.TOMTOM_KEY || '';
+async function ttRoute(points, departMs) {
+  const locs = points.map((p) => `${p.lat},${p.lon}`).join(':');
+  const q = new URLSearchParams({ key: TT_KEY, traffic: 'true', travelMode: 'car', routeType: 'fastest', computeTravelTimeFor: 'all', routeRepresentation: 'summaryOnly' });
+  if (departMs) q.set('departAt', new Date(departMs).toISOString().replace(/\.\d+Z$/, 'Z'));
+  let last = 'no response';
+  for (let i = 0; i < 3; i++) {
+    try {
+      const r = await fetch(`https://api.tomtom.com/routing/1/calculateRoute/${locs}/json?${q}`, { signal: AbortSignal.timeout(30000) });
+      if (r.ok) {
+        const m = (await r.json()).routes?.[0]?.summary;
+        if (!m?.travelTimeInSeconds) throw new Error('no route in response');
+        return { sec: m.travelTimeInSeconds, noTrafficSec: m.noTrafficTravelTimeInSeconds ?? null, historicSec: m.historicTrafficTravelTimeInSeconds ?? null, km: Math.round(m.lengthInMeters / 1000) };
+      }
+      last = `HTTP ${r.status} ${(await r.text()).replaceAll(TT_KEY, '***').slice(0, 160)}`;
+      if (r.status < 500 && r.status !== 429) break;
+    } catch (e) {
+      last = String(e.message).replaceAll(TT_KEY, '***');
+    }
+    await new Promise((s) => setTimeout(s, 1200 * (i + 1)));
+  }
+  throw new Error(`TomTom routing: ${last}`);
+}
+// Live drive time both ways on every run; hourly forecasts for the next 24 h are refreshed about once an hour
+// and otherwise carried over from the previously published file, to stay well inside the free daily quota.
+async function drive(dest) {
+  const way = dest.route.points.filter((p) => p.offsetH != null);
+  const dirs = { out: way, back: [...way].reverse() };
+  const res = { at: Date.now() };
+  for (const [k, pts] of Object.entries(dirs)) res[k] = await ttRoute(pts);
+  let prev = null;
+  try {
+    const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
+    if (owner) prev = (await get(`https://${owner.toLowerCase()}.github.io/${repo}/data/${dest.id}.json`, { tries: 1 })).drive;
+  } catch { /* first run or site unreachable: just recompute */ }
+  if (prev?.hourly && Date.now() - prev.hourlyAt < 55 * 6e4) {
+    res.hourlyAt = prev.hourlyAt;
+    res.hourly = prev.hourly;
+  } else {
+    const h0 = Math.ceil(Date.now() / 36e5) * 36e5;
+    res.hourly = { out: [], back: [] };
+    for (let i = 0; i < 24; i++) {
+      for (const [k, pts] of Object.entries(dirs)) {
+        const r = await ttRoute(pts, h0 + i * 36e5);
+        res.hourly[k].push({ ms: h0 + i * 36e5, sec: r.sec, noTrafficSec: r.noTrafficSec });
+      }
+    }
+    res.hourlyAt = Date.now();
+  }
+  return res;
+}
+
 // ---------- main ----------
 await mkdir(new URL('../data/', import.meta.url), { recursive: true });
 for (const dest of DESTINATIONS) {
@@ -237,9 +292,11 @@ for (const dest of DESTINATIONS) {
       failed.push(p.id);
     }
   }
+  const dr = TT_KEY ? await source(status, 'drive', () => drive(dest), null) : null;
   status.weather = failed.length ? { ok: false, error: `missing: ${failed.join(', ')}`, at: Date.now() } : { ok: true, at: Date.now() };
-  const out = { generatedAt: Date.now(), t0, hours: HOURS, status, chain: ch, closures: cl, incidents: inc, alerts: al, cams: cm, weather };
+  const out = { generatedAt: Date.now(), t0, hours: HOURS, status, chain: ch, closures: cl, incidents: inc, alerts: al, cams: cm, weather, drive: dr };
   await writeFile(new URL(`../data/${dest.id}.json`, import.meta.url), JSON.stringify(out));
   console.log(dest.id, Object.entries(status).map(([k, v]) => `${k}:${v.ok ? 'ok' : 'FAIL'}`).join(' '),
-    `chain=${ch.length} cams=${cm.length} closures=${cl.length} incidents=${inc.length} alerts=${al.length} weather=${Object.keys(weather).length}`);
+    `chain=${ch.length} cams=${cm.length} closures=${cl.length} incidents=${inc.length} alerts=${al.length} weather=${Object.keys(weather).length}`,
+    dr ? `drive: out ${Math.round(dr.out.sec / 60)}min back ${Math.round(dr.back.sec / 60)}min hourly=${dr.hourly.out.length} (${Math.round((Date.now() - dr.hourlyAt) / 6e4)}min old)` : TT_KEY ? 'drive: FAILED' : 'drive: no TOMTOM_KEY');
 }
