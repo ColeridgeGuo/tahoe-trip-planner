@@ -73,3 +73,8 @@ const CARTO_KEYS = {
   localhost: 'cb1_5b2s_2_6463e6586c468ef9c1dc849e',
 };
 export const CARTO_KEY = (typeof location !== 'undefined' && CARTO_KEYS[location.hostname]) || '';
+
+// TomTom key for the traffic-flow map layer. It is locked by TomTom to this site's domain and can only
+// read traffic tiles. Hosts without a key simply do not get the traffic toggle.
+const TOMTOM_WEB_KEYS = { 'coleridgeguo.github.io': 'Sni236fzfK6Qa6eLr8NFxqTuvgb48J5F' };
+export const TOMTOM_WEB_KEY = (typeof location !== 'undefined' && TOMTOM_WEB_KEYS[location.hostname]) || '';

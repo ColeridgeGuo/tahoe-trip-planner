@@ -1,4 +1,4 @@
-import { DESTINATIONS, DEFAULT_VEHICLE, CARTO_KEY } from './config.js';
+import { DESTINATIONS, DEFAULT_VEHICLE, CARTO_KEY, TOMTOM_WEB_KEY } from './config.js';
 import { CC_URL, normalizeChain } from './normalize.js';
 import { makeT } from './i18n.js';
 import { list } from './sync.js';
@@ -28,7 +28,7 @@ const S = {
   error: null,
   chainLiveAt: null,
   camsLoaded: new Set(),
-  mapShow: { inc: true, clos: false, cams: false, ...store.get('mapShow', {}) },
+  mapShow: { traffic: false, inc: true, clos: false, cams: false, ...store.get('mapShow', {}) },
 };
 let t = makeT(S.lang);
 const dest = () => DESTINATIONS.find((d) => d.id === S.destId) || DESTINATIONS[0];
@@ -170,7 +170,7 @@ function render() {
 }
 
 // ----- map (Leaflet, loaded only when the roads tab needs it) -----
-const MAP = { map: null, tiles: null, tileKind: null, overlay: null, route: null, routeId: null, loading: null };
+const MAP = { map: null, tiles: null, tileKind: null, flow: null, flowKind: null, overlay: null, route: null, routeId: null, loading: null };
 const isDark = () => S.theme === 'dark' || (S.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
 function loadLeaflet() {
   if (window.L) return Promise.resolve();
@@ -182,7 +182,7 @@ function loadLeaflet() {
 }
 function destroyMap() {
   if (MAP.map) MAP.map.remove();
-  MAP.map = MAP.tiles = MAP.tileKind = MAP.overlay = null;
+  MAP.map = MAP.tiles = MAP.tileKind = MAP.flow = MAP.flowKind = MAP.overlay = null;
 }
 async function initMap() {
   const el = $('#map');
@@ -223,6 +223,14 @@ function drawMap() {
     map.getContainer().classList.toggle('invert', kind === 'dark' && !cartoDark);
     MAP.tileKind = kind;
   }
+  // Live traffic flow (TomTom), drawn above the base map and below our own markers.
+  const flowKind = S.mapShow.traffic && TOMTOM_WEB_KEY ? kind : null;
+  if (MAP.flowKind !== flowKind) {
+    MAP.flow?.remove();
+    MAP.flow = flowKind && LF.tileLayer(`https://api.tomtom.com/traffic/map/4/tile/flow/${flowKind === 'dark' ? 'relative0-dark' : 'relative0'}/{z}/{x}/{y}.png?key=${TOMTOM_WEB_KEY}&tileSize=256`,
+      { maxZoom: 18, zIndex: 5, opacity: 0.9, attribution: '© <a href="https://www.tomtom.com">TomTom</a>' }).addTo(map);
+    MAP.flowKind = flowKind;
+  }
   const g = MAP.overlay.clearLayers();
   const css = getComputedStyle(document.documentElement);
   const col = (lv) => css.getPropertyValue(lv >= 3 ? '--nogo' : lv >= 1 ? '--caution' : '--ok').trim();
@@ -231,7 +239,8 @@ function drawMap() {
   const pop = (title, lines) => `<b>${esc(title)}</b>${lines.filter(Boolean).map((x) => `<br>${x}`).join('')}`;
   const mark = (lat, lon, cls, label, html, z = 0) => LF.marker([lat, lon], { icon: LF.divIcon({ className: `mk ${cls}`, html: label, iconSize: null }), zIndexOffset: z }).bindPopup(html, { maxWidth: 260 }).addTo(g);
 
-  LF.polyline(route, { color: css.getPropertyValue('--accent').trim(), weight: 4, opacity: 0.55 }).addTo(g);
+  // With traffic on, the flow colours are the road; keep our own line out of the way.
+  if (!flowKind) LF.polyline(route, { color: css.getPropertyValue('--accent').trim(), weight: 4, opacity: 0.55 }).addTo(g);
 
   // Chain control: colour the stretch from each active checkpoint to the next one in the direction of travel.
   const nearest = (lat, lon) => { let b = 0, bd = Infinity; route.forEach(([a, o], i) => { const d = (a - lat) ** 2 + ((o - lon) * 0.78) ** 2; if (d < bd) { bd = d; b = i; } }); return b; };
@@ -377,8 +386,8 @@ function viewRoads() {
   const dirLabel = t(dir === 'East' ? 'east' : 'west');
   const dirSeg = `<div class="controls">${seg('direction', S.direction, [['out', `${t('out')} · ${t(r.outboundDir === 'East' ? 'east' : 'west')}`], ['back', `${t('back')} · ${t(r.returnDir === 'East' ? 'east' : 'west')}`]])}</div>`;
   const lay = (k, label) => `<button data-act="mapLayer" data-v="${k}" class="${S.mapShow[k] ? 'on' : ''}" aria-pressed="${S.mapShow[k]}">${label}</button>`;
-  const mapHtml = `<div class="chips">${lay('inc', t('mapInc'))}${lay('clos', t('mapClos'))}${lay('cams', t('mapCams'))}</div><div id="map"></div>
-    <div class="legend"><span><i class="lg ok"></i>${t('mapNone')}</span><span><i class="lg caution"></i>R1 / R2</span><span><i class="lg nogo"></i>${t('mapClosed')}</span></div><p class="note">${t('mapNote')}</p>`;
+  const mapHtml = `<div class="chips">${TOMTOM_WEB_KEY ? lay('traffic', t('mapTraffic')) : ''}${lay('inc', t('mapInc'))}${lay('clos', t('mapClos'))}${lay('cams', t('mapCams'))}</div><div id="map"></div>
+    <div class="legend"><span><i class="lg ok"></i>${t('mapNone')}</span><span><i class="lg caution"></i>R1 / R2</span><span><i class="lg nogo"></i>${t('mapClosed')}</span></div>${S.mapShow.traffic && TOMTOM_WEB_KEY ? `<p class="note">${t('mapTrafficNote')}</p>` : ''}<p class="note">${t('mapNote')}</p>`;
   const chain = `<ul class="rows">${c.rows.map((x) => `<li>${rBadge(x.level, x.status)}<div><b>${esc(x.name.replace(/\s*\((unselect|holding)[^)]*\)/i, ''))}</b><small>${x.elevFt ? fElev(x.elevFt / 3.28084) + ' · ' : ''}${esc(x.at)}</small>${x.level !== 0 ? `<p>${esc(x.desc)}</p>` : ''}</div></li>`).join('') || `<li class="muted">${t('noData')}</li>`}</ul>`;
 
   const alts = `<ul class="rows">${r.alternates.map((a) => {
