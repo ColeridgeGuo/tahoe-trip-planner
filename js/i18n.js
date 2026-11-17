@@ -67,6 +67,16 @@ export const STR = {
     tip: { zh: '中文', en: 'English', C: '摄氏度', F: '华氏度', imp: '英制', met: '公制', theme: '外观', refresh: '刷新数据', settings: '设置' },
     settings: '设置', theme: '外观', th: { auto: '跟随设备', light: '浅色', dark: '深色' }, lang: '语言', units: '单位', vehicle: '车辆', awd: '四驱 / AWD', twd: '两驱', snowTires: 'M+S 或雪胎', chains: '随车带链条', ev: '电车',
     syncTitle: '清单跨设备同步', syncHelp: '在 GitHub 生成一个只勾选 gist 权限的令牌，每台设备粘贴一次。清单存在你自己的私密 Gist 里，令牌只保存在这台设备的浏览器里。', tokenPh: 'GitHub 令牌 (ghp_… 或 github_pat_…)', save: '保存并同步', disconnect: '断开', makeToken: '生成令牌', close: '关闭',
+    al: {
+      title: '变化提醒', help: '在“建议”页选好出发时间后开提醒：出行结论或链条管制等级一变，就推送到这台设备。每 15 分钟检查一次，到出发为止。去程和返程可以各设一个。',
+      remind: '有变化提醒我', move: '改成提醒这个时间', on: '已开提醒 · {when}出发', off: '取消提醒', saving: '保存中…', failed: '提醒没保存成功，请再试一次。',
+      unsupported: '这个浏览器不支持推送。iPhone 上要先用 Safari 的“添加到主屏幕”，再从主屏幕图标打开本页。', denied: '这台设备已拒绝本页的通知，请到系统设置里重新允许。', needToken: '提醒要用到上面的同步：先粘贴 GitHub 令牌。',
+      ready: '这台设备可以接收提醒。', thisOn: '这台设备已开启提醒。',
+      secret: '只需设置一次：把下面这串 ID 存为仓库的 Actions Secret，名称填 ALERT_GIST_ID。后台靠它找到你设的出发时间。', openSecrets: '打开仓库 Secret 页面', copy: '复制', copied: '已复制',
+      test: '发一条测试通知', testTitle: 'Tahoe Trip Planner', testBody: '通知可以正常显示。',
+      nTitle: '{dest} {dir} · {when}出发', nStart: '提醒已开启。现在：{level}；{hw}链条管制：{chain}。有变化会再通知。', nLevel: '出行结论：{a} → {b}', nChain: '{hw}链条管制：{a} → {b}', nWhy: '原因：{list}',
+      chainNone: '无', chainClosed: '关闭', chainNA: '无数据',
+    },
     dest: '目的地', refresh: '刷新', dataAt: '数据', chainLive: '链条', ago: '{v}前', min: '分钟', hr: '小时', justNow: '刚刚', loading: '加载中…', loadFail: '数据加载失败', srcStaleTag: '沿用 {v}的数据', offline: '离线 · 显示的是{when}的数据（{ago}）', srcs: '数据来源：Caltrans、CHP、NWS、TomTom。估算仅供参考，上路前以官方信息为准。',
   },
   en: {
@@ -137,6 +147,16 @@ export const STR = {
     tip: { zh: '中文', en: 'English', C: 'Celsius', F: 'Fahrenheit', imp: 'Imperial', met: 'Metric', theme: 'Appearance', refresh: 'Refresh data', settings: 'Settings' },
     settings: 'Settings', theme: 'Appearance', th: { auto: 'Match device', light: 'Light', dark: 'Dark' }, lang: 'Language', units: 'Units', vehicle: 'Vehicle', awd: '4WD / AWD', twd: '2WD', snowTires: 'M+S or snow tires', chains: 'Chains in the car', ev: 'Electric',
     syncTitle: 'Sync the list across devices', syncHelp: 'Create a GitHub token with only the gist scope and paste it once per device. The list lives in a private Gist of yours; the token stays in this browser.', tokenPh: 'GitHub token (ghp_… or github_pat_…)', save: 'Save and sync', disconnect: 'Disconnect', makeToken: 'Create token', close: 'Close',
+    al: {
+      title: 'Change alerts', help: 'Pick a departure time on the Verdict tab and turn on the alert: this device gets a notification whenever the verdict or the chain-control level changes. Checked every 15 minutes until you leave. One each for the outbound and the return trip.',
+      remind: 'Alert me if this changes', move: 'Watch this time instead', on: 'Alert on · leaving {when}', off: 'Turn off', saving: 'Saving…', failed: 'The alert was not saved. Please try again.',
+      unsupported: 'This browser cannot receive push notifications. On an iPhone, use Safari’s “Add to Home Screen” first and open the page from that icon.', denied: 'Notifications from this page are blocked on this device. Allow them again in the system settings.', needToken: 'Alerts use the sync above: paste a GitHub token first.',
+      ready: 'This device can receive alerts.', thisOn: 'Alerts are on for this device.',
+      secret: 'One-time setup: save the ID below as an Actions secret of the repository, named ALERT_GIST_ID. The scheduled job uses it to find the departure you set.', openSecrets: 'Open the repository secrets page', copy: 'Copy', copied: 'Copied',
+      test: 'Send a test notification', testTitle: 'Tahoe Trip Planner', testBody: 'Notifications are working.',
+      nTitle: '{dest} {dir} · leaving {when}', nStart: 'Alert is on. Now: {level}; {hw} chain control: {chain}. You will hear about any change.', nLevel: 'Verdict: {a} → {b}', nChain: '{hw} chain control: {a} → {b}', nWhy: 'Because of: {list}',
+      chainNone: 'none', chainClosed: 'closed', chainNA: 'no data',
+    },
     dest: 'Destination', refresh: 'Refresh', dataAt: 'Data', chainLive: 'Chains', ago: '{v} ago', min: 'min', hr: 'h', justNow: 'just now', loading: 'Loading…', loadFail: 'Could not load data', srcStaleTag: 'Data from {v}', offline: 'Offline · showing data from {when} ({ago})', srcs: 'Sources: Caltrans, CHP, NWS, TomTom. Estimates are guidance only; trust official information before you drive.',
   },
 };

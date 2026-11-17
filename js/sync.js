@@ -36,6 +36,19 @@ export const list = {
   sync,
 };
 
+// Other small JSON files kept in the same Gist (the trip-alert plan). Needs the token; creates the Gist if needed.
+export const gist = {
+  id: () => ls.get(K.gist),
+  async ensure() { if (!ls.get(K.gist)) await sync(); const id = ls.get(K.gist); if (!id) throw new Error('no gist'); return id; },
+  async read(name) {
+    const g = await gh(`/gists/${await gist.ensure()}`);
+    try { return JSON.parse(g.files[name]?.content || 'null'); } catch { return null; }
+  },
+  async write(name, obj) {
+    await gh(`/gists/${await gist.ensure()}`, { method: 'PATCH', body: JSON.stringify({ files: { [name]: { content: JSON.stringify(obj, null, 1) } } }) });
+  },
+};
+
 function changed() {
   persist();
   onChange();

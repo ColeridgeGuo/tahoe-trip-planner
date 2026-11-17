@@ -1,7 +1,8 @@
 import { DESTINATIONS, DEFAULT_VEHICLE, CARTO_KEY, TOMTOM_WEB_KEY } from './config.js';
 import { CC_URL, normalizeChain } from './normalize.js';
 import { makeT } from './i18n.js';
-import { list } from './sync.js';
+import { list, gist } from './sync.js';
+import { alerts } from './alerts.js';
 import * as L from './logic.js';
 
 const TZ = 'America/Los_Angeles';
@@ -29,6 +30,7 @@ const S = {
   offline: false, // showing the last saved data because the network could not be reached
   chainLiveAt: null,
   camsLoaded: new Set(),
+  alertErr: false, // the last attempt to save an alert failed
   mapShow: { traffic: false, inc: true, clos: false, cams: false, ...store.get('mapShow', {}) },
 };
 let t = makeT(S.lang);
@@ -88,6 +90,13 @@ function departMs() {
   if (S.depart === 'now' || !S.ix) return Date.now();
   const h = S.ix.hours.find((x) => x.day === S.depart.day && x.h === S.depart.h);
   return h ? Math.max(h.ms, Date.now()) : Date.now();
+}
+
+// The hour picked on the strip, if it is still ahead: the departure a change alert can be set for.
+function pickedHour() {
+  if (S.depart === 'now' || !S.ix) return null;
+  const h = S.ix.hours.find((x) => x.day === S.depart.day && x.h === S.depart.h);
+  return h && h.ms > Date.now() ? h : null;
 }
 
 // "Live" only holds while the network is reachable; offline, say how old the reading is instead.
@@ -174,6 +183,7 @@ function renderChrome() {
 
 function render() {
   t = makeT(S.lang);
+  alerts.context({ lang: S.lang, vehicle: S.vehicle });
   renderChrome();
   const m = $('#main');
   if (!S.data) { m.innerHTML = `<p class="muted pad">${S.error ? `${t('loadFail')}: ${esc(S.error)}` : t('loading')}</p>`; if (S.tab === 'list') m.innerHTML = viewList(); return; }
@@ -334,6 +344,15 @@ function viewVerdict() {
     ${pick ? `<select data-change="day" aria-label="${t('day')}">${S.ix.days.map((x) => `<option value="${x}" ${x === day ? 'selected' : ''}>${fDay(x)}${x === L.dayKey(Date.now()) || x === L.dayKey(Date.now() + 864e5) ? ' · ' + fDayFull(x) : ''}</option>`).join('')}</select>` : ''}
   </div>`;
 
+  // Change alert for this direction: the one that is on, and a button to watch the hour picked on the strip.
+  const plan = alerts.plan(S.direction);
+  const sel = pickedHour();
+  const busy = alerts.status() === 'busy';
+  const alertRow = plan || sel ? `<div class="alertrow">
+    ${plan ? `<span class="tag ok">${t('al.on', { when: fWhen(plan.departMs) })}</span><button class="ghost" data-act="alertOff" ${busy ? 'disabled' : ''}>${t('al.off')}</button>` : ''}
+    ${sel && plan?.departMs !== sel.ms ? `<button class="ghost" data-act="alertOn" ${busy ? 'disabled' : ''}>${t(plan ? 'al.move' : 'al.remind')}</button>` : ''}
+    ${busy ? `<span class="muted">${t('al.saving')}</span>` : S.alertErr ? `<span class="tag bad">${t('al.failed')}</span>` : ''}</div>` : '';
+
   const hero = `<section class="hero ${ev.level}">
     <div class="route">${esc(nm(ends[0].name))} → ${esc(nm(ends[1].name))}</div>
     <h1>${t(ev.level)}</h1>
@@ -358,7 +377,7 @@ function viewVerdict() {
   const along = `<div class="tablewrap"><table><thead><tr><th></th><th>${t('time')}</th><th>${t('temp')}</th><th>${t('snowRate')}</th><th>${t('snowLevel')}</th><th>${t('gust')}</th></tr></thead><tbody>${ev.stops.map((s) => `<tr>
       <th>${esc(nm(s.point.name))}<small>${fElev(s.elevM)}</small></th><td>${fTime(s.ms)}</td>${s.missing ? `<td colspan="4" class="muted">${t('noData')}</td>` : `<td>${fT0(s.temp)}</td><td class="${s.snow >= L.TH.snowHeavy ? 'bad' : s.snow >= L.TH.snowLight ? 'warn' : ''}">${s.snow > 0 ? fSnow(s.snow) + '/h' : s.qpf > 0.1 ? '🌧' : '–'}</td><td>${fElev(s.snowLevel)}</td><td>${fWind(s.gust)}</td>`}</tr>`).join('')}</tbody></table></div>`;
 
-  return controls + hero + card('basis', t('basis'), `<ul class="factors">${factors}</ul>`) + card('strip', `${t('stripTitle')} · ${fDay(day)}`, stripHtml) + card('along', t('alongTitle'), along);
+  return controls + alertRow + hero + card('basis', t('basis'), `<ul class="factors">${factors}</ul>`) + card('strip', `${t('stripTitle')} · ${fDay(day)}`, stripHtml) + card('along', t('alongTitle'), along);
 }
 
 // ----- weather -----
@@ -497,8 +516,20 @@ function openSettings() {
     <h3>${t('syncTitle')}</h3><p class="note">${t('syncHelp')} <a href="https://github.com/settings/tokens/new?scopes=gist&description=Tahoe%20Run%20checklist" target="_blank" rel="noopener">${t('makeToken')} ↗</a></p>
     ${list.hasToken() ? `<p><span class="tag ${list.status()}">${t('sync.' + list.status())}</span> <button type="button" class="ghost" data-act="disconnect">${t('disconnect')}</button></p>`
       : `<div class="add"><input id="token" type="password" autocomplete="off" placeholder="${t('tokenPh')}"><button type="button" data-act="connect">${t('save')}</button></div>`}
+    <h3>${t('al.title')}</h3><p class="note">${t('al.help')}</p>${alertSettings()}
     <button class="ghost close">${t('close')}</button></form>`;
   if (!$('#dlg').open) $('#dlg').showModal();
+}
+function alertSettings() {
+  const why = alerts.blocker();
+  if (why !== 'ok') return `<p><span class="tag bad">${t({ unsupported: 'al.unsupported', denied: 'al.denied', token: 'al.needToken' }[why])}</span></p>`;
+  const id = gist.id();
+  // On GitHub Pages the repository is known from the address, so the secrets page can be linked directly.
+  const m = /^([^.]+)\.github\.io$/.exec(location.hostname);
+  const repo = m && location.pathname.split('/')[1];
+  return `<p><span class="tag ok">${t(alerts.enabled() ? 'al.thisOn' : 'al.ready')}</span> <button type="button" class="ghost" data-act="alertTest">${t('al.test')}</button></p>
+    ${id ? `<p class="note">${t('al.secret')}${repo ? ` <a href="https://github.com/${m[1]}/${repo}/settings/secrets/actions/new" target="_blank" rel="noopener">${t('al.openSecrets')} ↗</a>` : ''}</p>
+    <div class="add"><input id="gistId" readonly value="${esc(id)}" aria-label="ALERT_GIST_ID"><button type="button" data-act="alertCopy">${t('al.copy')}</button></div>` : ''}`;
 }
 function openCam(i) {
   const c = S.data.cams[i];
@@ -551,6 +582,17 @@ document.addEventListener('click', (e) => {
     case 'drive': S.vehicle.drive = v; store.set('vehicle', S.vehicle); openSettings(); break;
     case 'connect': { const tok = $('#token').value; if (tok.trim()) list.connect(tok).then(openSettings); return; }
     case 'disconnect': list.disconnect(); return openSettings();
+    case 'alertOn': { // asks for notification permission, so it has to start inside this tap
+      const h = pickedHour();
+      if (!h) break;
+      if (alerts.blocker() !== 'ok') return openSettings();
+      S.alertErr = false;
+      alerts.set(S.direction, { dest: S.destId, departMs: h.ms }, { lang: S.lang, vehicle: S.vehicle }).catch(() => { S.alertErr = true; }).finally(() => { if (alerts.blocker() !== 'ok') openSettings(); render(); });
+      return;
+    }
+    case 'alertOff': S.alertErr = false; alerts.clear(S.direction).catch(() => { S.alertErr = true; }).finally(render); return;
+    case 'alertTest': alerts.test(t('al.testTitle'), t('al.testBody')).catch(() => openSettings()); return;
+    case 'alertCopy': navigator.clipboard?.writeText($('#gistId').value).then(() => { b.textContent = t('al.copied'); }); $('#gistId').select(); return;
     default: return;
   }
   render();
@@ -580,7 +622,8 @@ window.addEventListener('hashchange', () => {
   if (TABS.includes(k)) { S.tab = k; render(); window.scrollTo(0, 0); }
 });
 list.subscribe(() => { if (S.tab === 'list') { const typing = document.activeElement?.id === 'newItem' && $('#newItem').value; if (!typing) render(); } if ($('#dlg').open && $('#token') == null && $('#dlg h3')) openSettings(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadData(); if (list.hasToken()) list.sync(); } });
+alerts.subscribe(() => { if (S.tab === 'verdict' && S.data) softRender(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadData(); if (list.hasToken()) list.sync(); alerts.refresh(); } });
 setInterval(() => { if (!document.hidden) loadData(); }, 5 * 6e4);
 // If the device switches to the scheme that was pinned by hand, go back to following the device.
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
@@ -597,4 +640,4 @@ if ('serviceWorker' in navigator) {
 
 render();
 loadData();
-if (list.hasToken()) list.sync();
+if (list.hasToken()) list.sync().then(() => alerts.refresh());

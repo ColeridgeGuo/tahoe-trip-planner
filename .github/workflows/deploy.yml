@@ -31,6 +31,13 @@ jobs:
         run: node scripts/fetch.mjs
         env:
           TOMTOM_KEY: ${{ secrets.TOMTOM_KEY }}
+      # Change alerts: pushes a notification if the verdict or chain level changed for the departure being watched.
+      # Does nothing until ALERT_GIST_ID is set, and never fails the run.
+      - name: Send change alerts
+        run: node scripts/notify.mjs
+        env:
+          ALERT_GIST_ID: ${{ secrets.ALERT_GIST_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
       - name: Assemble site
         run: |
           mkdir _site

@@ -4,7 +4,7 @@
 const CACHE = 'tahoe-v1';
 const SHELL = [
   './', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'css/style.css',
-  'js/app.js', 'js/config.js', 'js/i18n.js', 'js/logic.js', 'js/normalize.js', 'js/sync.js',
+  'js/app.js', 'js/alerts.js', 'js/config.js', 'js/i18n.js', 'js/logic.js', 'js/normalize.js', 'js/sync.js',
   'js/routes/heavenly.js', 'js/vendor/leaflet.css', 'js/vendor/leaflet.js',
 ];
 const TIMEOUT_MS = 6000;
@@ -63,4 +63,21 @@ self.addEventListener('fetch', (e) => {
   // Only this site's own files. Map tiles, cameras, Caltrans and GitHub requests go straight to the network.
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   e.respondWith(networkFirst(e));
+});
+
+// Change alerts sent by the scheduled workflow (scripts/notify.mjs). The payload is JSON: { title, body, url, tag }.
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data.json(); } catch { d = { body: e.data?.text() || '' }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Tahoe Trip Planner', {
+    body: d.body || '', icon: 'icon-192.png', badge: 'icon-192.png', tag: d.tag, renotify: !!d.tag, data: { url: d.url || './' },
+  }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = new URL(e.notification.data?.url || './', self.registration.scope).href;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((cs) => {
+    const open = cs.find((c) => c.url.startsWith(self.registration.scope));
+    return open ? open.focus() : self.clients.openWindow(url);
+  }));
 });
