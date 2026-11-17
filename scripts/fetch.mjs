@@ -226,9 +226,11 @@ async function ttRoute(points, departMs) {
     try {
       const r = await fetch(`https://api.tomtom.com/routing/1/calculateRoute/${locs}/json?${q}`, { signal: AbortSignal.timeout(30000) });
       if (r.ok) {
-        const m = (await r.json()).routes?.[0]?.summary;
+        const route = (await r.json()).routes?.[0];
+        const m = route?.summary;
         if (!m?.travelTimeInSeconds) throw new Error('no route in response');
-        return { sec: m.travelTimeInSeconds, noTrafficSec: m.noTrafficTravelTimeInSeconds ?? null, historicSec: m.historicTrafficTravelTimeInSeconds ?? null, km: Math.round(m.lengthInMeters / 1000) };
+        const legs = (route.legs || []).map((l) => ({ km: Math.round(l.summary.lengthInMeters / 100) / 10, min: Math.round(l.summary.travelTimeInSeconds / 60) }));
+        return { sec: m.travelTimeInSeconds, noTrafficSec: m.noTrafficTravelTimeInSeconds ?? null, historicSec: m.historicTrafficTravelTimeInSeconds ?? null, km: Math.round(m.lengthInMeters / 1000), legs };
       }
       last = `HTTP ${r.status} ${(await r.text()).replaceAll(TT_KEY, '***').slice(0, 160)}`;
       if (r.status < 500 && r.status !== 429) break;
@@ -245,7 +247,10 @@ async function drive(dest) {
   const way = dest.route.points.filter((p) => p.offsetH != null);
   const dirs = { out: way, back: [...way].reverse() };
   const res = { at: Date.now() };
-  for (const [k, pts] of Object.entries(dirs)) res[k] = await ttRoute(pts);
+  for (const [k, pts] of Object.entries(dirs)) {
+    res[k] = await ttRoute(pts);
+    console.log(`drive ${k}: ${res[k].km} km, legs ${pts.map((p) => p.id).join(' > ')}: ${res[k].legs.map((l) => `${l.km}km/${l.min}min`).join(', ')}`);
+  }
   let prev = null;
   try {
     const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
