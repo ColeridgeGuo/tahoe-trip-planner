@@ -27,6 +27,10 @@ export const DESTINATIONS = [
         { id: 'summit', name: { zh: 'Heavenly 山顶', en: 'Heavenly summit' }, lat: 38.9195, lon: -119.9005, role: 'resort' },
       ],
       mountainPoints: ['kyburz', 'pass', 'town'],
+      // Drive-time lookups go origin > these > town. Only points on the undivided two-lane mountain road are
+      // used: they pin the route to this highway without forcing a detour through a city centre, and they
+      // sit on a road that is the same in both directions.
+      drivePins: ['kyburz', 'pass'],
       townPoint: 'town',
       alternates: [
         { highway: 'I-80', label: { zh: 'I-80 (Donner Summit) → CA-89', en: 'I-80 (Donner Summit) → CA-89' } },

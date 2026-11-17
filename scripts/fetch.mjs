@@ -244,7 +244,8 @@ async function ttRoute(points, departMs) {
 // Live drive time both ways on every run; hourly forecasts for the next 24 h are refreshed about once an hour
 // and otherwise carried over from the previously published file, to stay well inside the free daily quota.
 async function drive(dest) {
-  const way = dest.route.points.filter((p) => p.offsetH != null);
+  const pt = (id) => dest.route.points.find((p) => p.id === id);
+  const way = [dest.route.points[0], ...dest.route.drivePins.map(pt), pt(dest.route.townPoint)];
   const dirs = { out: way, back: [...way].reverse() };
   const res = { at: Date.now() };
   for (const [k, pts] of Object.entries(dirs)) {
