@@ -6,6 +6,7 @@ A go / no-go dashboard for driving from the Bay Area to a Tahoe ski resort: chai
 
 - `scripts/fetch.mjs` pulls Caltrans (chain control, lane closures, cameras), CHP incidents and NWS gridded forecasts and alerts, and writes `data/<destination>.json`.
 - `.github/workflows/deploy.yml` runs that script every 15 minutes and publishes the site to GitHub Pages. Nothing is committed back to the repo.
+- If a source fails on a run, its last good data is carried over from the previously published file (up to 24 h) and the page shows how old it is.
 - The page additionally reads chain control straight from Caltrans on every load, so that part is always live.
 - The checklist is stored in the browser and can sync through a private GitHub Gist (Settings → paste a token with only the `gist` scope).
 

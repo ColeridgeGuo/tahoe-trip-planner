@@ -261,8 +261,8 @@ function drawMap() {
     mark(c.lat, c.lon, `mk-cc ${c.level >= 3 ? 'nogo' : c.level > 0 ? 'caution' : 'ok'} ${c.level > 0 ? 'big' : ''}`, label,
       pop(name, [c.level > 0 ? esc(c.desc) : t('mapNone'), `<span class="muted">${c.elevFt ? fElev(c.elevFt / 3.28084) + ' · ' : ''}${esc(c.at)}</span>`]), c.level > 0 ? 500 : 0);
   }
-  if (S.mapShow.inc) for (const x of S.data.incidents) mark(x.lat, x.lon, `mk-inc ${/collision|closure|sigalert|fatal|spin/i.test(x.type) ? 'caution' : ''}`, '!', pop(x.type, [esc(x.loc), x.time ? `<span class="muted">${fTime(x.time)} · ${esc(x.area)}</span>` : '', ...x.details.map(esc)]), 300);
-  if (S.mapShow.clos) for (const k of S.data.closures) if (k.lat && !L.isRamp(k)) mark(k.lat, k.lon, `mk-cl ${L.isFull(k) ? 'nogo' : ''}`, '', pop(`${k.from} → ${k.to}`, [esc(`${k.type} · ${k.work}`), `<span class="muted">${fWhen(k.start)} ${t('until')} ${k.end ? fWhen(k.end) : t('indefinite')}</span>`]), 100);
+  if (S.mapShow.inc) for (const x of L.incidentsFor(S.data, dir)) mark(x.lat, x.lon, `mk-inc ${/collision|closure|sigalert|fatal|spin/i.test(x.type) ? 'caution' : ''}`, '!', pop(x.type, [esc(x.loc), x.time ? `<span class="muted">${fTime(x.time)} · ${esc(x.area)}</span>` : '', ...x.details.map(esc)]), 300);
+  if (S.mapShow.clos) for (const k of S.data.closures) if (k.lat && !L.isRamp(k) && L.inDir(k.dir, dir)) mark(k.lat, k.lon, `mk-cl ${L.isFull(k) ? 'nogo' : ''}`, '', pop(`${k.from} → ${k.to}`, [esc(`${k.type} · ${k.work}`), `<span class="muted">${fWhen(k.start)} ${t('until')} ${k.end ? fWhen(k.end) : t('indefinite')}</span>`]), 100);
   if (S.mapShow.cams) S.data.cams.forEach((c) => mark(c.lat, c.lon, 'mk-cam', '', `<b>${esc(c.name)}</b><img class="popcam" alt="" src="${esc(c.img)}?t=${Math.floor(Date.now() / 3e5)}">`, 50));
 }
 // Background refreshes must not reload live streams or steal focus from the list input.
@@ -334,9 +334,9 @@ function viewVerdict() {
 
   const order = { nogo: 0, caution: 1, ok: 2, info: 3 };
   const factors = [...ev.factors].sort((a, b) => order[a.level] - order[b.level]).map((f) => {
-    const tag = ['chain', 'incidents'].includes(f.key) || f.msg === 'driveLive' ? t('liveTag') : f.msg === 'driveFc' ? t('fcTag') : ['snow', 'alerts', 'wind', 'lift', 'ev'].includes(f.key) ? t('fcTag') : '';
+    const tag = f.staleAt ? fAgo(f.staleAt) : ['chain', 'incidents'].includes(f.key) || f.msg === 'driveLive' ? t('liveTag') : f.msg === 'driveFc' ? t('fcTag') : ['snow', 'alerts', 'wind', 'lift', 'ev'].includes(f.key) ? t('fcTag') : '';
     const link = { chain: '#roads', closures: '#roads', incidents: '#roads', snow: '#weather', lift: '#resort', drive: '#roads' }[f.key];
-    return `<li class="${f.level}">${dot(f.level)}<div><div class="ft">${t('f.' + f.key)}${tag ? `<span class="tag">${tag}</span>` : ''}${link ? `<a class="more" href="${link}">›</a>` : ''}</div><div class="fm">${factorText(f)}</div></div></li>`;
+    return `<li class="${f.level}">${dot(f.level)}<div><div class="ft">${t('f.' + f.key)}${tag ? `<span class="tag">${tag}</span>` : ''}${link ? `<a class="more" href="${link}">›</a>` : ''}</div><div class="fm">${factorText(f)}${f.staleAt ? ` <span class="muted">${t('m.srcStale', { v: fAgo(f.staleAt) })}</span>` : ''}</div></div></li>`;
   }).join('');
 
   const hasDrive = strip.some((x) => x.drive && !x.past);
@@ -412,20 +412,23 @@ function viewRoads() {
   const now = Date.now();
   const clRow = (k) => `<li><span class="badge ${L.isFull(k) ? 'nogo' : k.start <= now ? 'caution' : 'na'}">${k.start <= now ? t('activeNow') : t('upcoming')}</span><div><b>${esc(k.from)} → ${esc(k.to)}</b>
     <small>${esc(k.facility)} · ${esc(k.type)} · ${esc(k.work)} · ${esc(k.dir)}</small><small>${fWhen(k.start)} ${t('until')} ${k.end ? fWhen(k.end) : t('indefinite')}${k.delayMin ? ' · ' + t('delay', { d: k.delayMin }) : ''}${k.total ? ' · ' + t('lanesOf', { a: k.lanes, b: k.total }) : ''}</small></div></li>`;
-  const soon = S.data.closures.filter((k) => !L.isRamp(k) && k.start < now + 48 * 36e5);
-  const later = S.data.closures.filter((k) => L.isRamp(k) || k.start >= now + 48 * 36e5);
-  const clos = S.data.closures.length
+  const closDir = S.data.closures.filter((k) => L.inDir(k.dir, dir));
+  const soon = closDir.filter((k) => !L.isRamp(k) && k.start < now + 48 * 36e5);
+  const later = closDir.filter((k) => L.isRamp(k) || k.start >= now + 48 * 36e5);
+  const clos = closDir.length
     ? `<ul class="rows">${soon.map(clRow).join('') || `<li class="muted">${t('closNone48')}</li>`}</ul>${later.length ? `<details><summary>${t('closMore', { n: later.length })}</summary><ul class="rows">${later.map(clRow).join('')}</ul></details>` : ''}`
     : `<p class="muted">${t('closNone')}</p>`;
 
-  const inc = S.data.incidents.length
-    ? `<ul class="rows">${S.data.incidents.map((x) => `<li><span class="badge ${/collision|closure|sigalert|fatal|spin/i.test(x.type) ? 'caution' : 'na'}">${x.time ? fTime(x.time) : ''}</span><div><b>${esc(x.type)}</b><small>${esc(x.loc)}${x.desc ? ' · ' + esc(x.desc) : ''} · ${esc(x.area)}</small>${x.details.length ? `<p>${x.details.map(esc).join('<br>')}</p>` : ''}</div></li>`).join('')}</ul>`
+  const incDir = L.incidentsFor(S.data, dir);
+  const inc = incDir.length
+    ? `<ul class="rows">${incDir.map((x) => `<li><span class="badge ${/collision|closure|sigalert|fatal|spin/i.test(x.type) ? 'caution' : 'na'}">${x.time ? fTime(x.time) : ''}</span><div><b>${esc(x.type)}</b><small>${esc(x.loc)}${x.desc ? ' · ' + esc(x.desc) : ''} · ${esc(x.area)}</small>${x.details.length ? `<p>${x.details.map(esc).join('<br>')}</p>` : ''}</div></li>`).join('')}</ul>`
     : `<p class="muted">${t('incNoneShort')}</p>`;
 
   const bust = Math.floor(Date.now() / 3e5);
   const cams = `<p class="note">${t('camHint')}</p><div class="cams">${S.data.cams.map((x, i) => `<button class="cam" data-act="cam" data-v="${i}"><img loading="lazy" alt="${esc(x.name)}" src="${esc(x.img)}?t=${bust}"><span>${esc(x.name)}<small>${x.elevFt ? fElev(x.elevFt / 3.28084) : ''}</small></span></button>`).join('')}</div>`;
 
-  const st = (k) => (S.data.status[k]?.ok === false ? `<span class="tag bad">${t('loadFail')}</span>` : '');
+  // A failed source shows how old its carried-over data is, or "failed" when there is none.
+  const st = (k) => { const s = S.data.status[k]; return s?.ok === false ? `<span class="tag bad">${s.dataAt ? t('srcStaleTag', { v: fAgo(s.dataAt) }) : t('loadFail')}</span>` : ''; };
   return dirSeg + card('map', `${r.label} ${t('mapTitle')}`, mapHtml) + card('chain', `${r.label} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? t('liveTag') : fAgo(S.data.generatedAt)}</span>${st('chain')}`) +
     card('alts', t('altTitle'), alts) + card('inc', t('incTitle'), inc, st('incidents')) + card('clos', t('closTitle'), clos, st('closures')) + card('cams', t('camTitle'), cams, st('cams')) + `<p class="note pad0">${t('srcTextNote')} · ${t('chainDir', { dir: dirLabel })}</p>`;
 }

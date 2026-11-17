@@ -149,9 +149,13 @@ export function chainFor(data, highway, dir) {
 
 export const isRamp = (c) => /ramp|connector/i.test(c.facility || '');
 export const isFull = (c) => /full/i.test(c.type) && !isRamp(c);
-export function closuresDuring(data, fromMs, toMs) {
-  return data.closures.filter((c) => !isRamp(c) && c.start < toMs && (c.end == null || c.end > fromMs));
+// Closures and incidents carry a direction of travel ('East', 'West', 'East / West'). A record with no
+// direction, or one that is not stated, counts for both ways.
+export const inDir = (recDir, dir) => !dir || !recDir || recDir === 'N/A' || recDir.includes(dir);
+export function closuresDuring(data, fromMs, toMs, dir) {
+  return data.closures.filter((c) => !isRamp(c) && inDir(c.dir, dir) && c.start < toMs && (c.end == null || c.end > fromMs));
 }
+export const incidentsFor = (data, dir) => data.incidents.filter((x) => inDir(x.dir, dir));
 
 export function evaluate(data, dest, opts) {
   const { departMs, direction, vehicle, nowMs = Date.now() } = opts;
@@ -162,42 +166,57 @@ export function evaluate(data, dest, opts) {
   const live = departMs - nowMs <= TH.liveHorizonH * 36e5;
   const st = data.status || {};
   const factors = [];
-  const src = (k) => st[k]?.ok !== false;
+  // A source that failed on the last refresh either has nothing (unconfirmed), or still carries its last good
+  // data: that is judged as usual, tagged with its age, and no better than caution once it is too old.
+  const src = (k) => st[k]?.ok !== false || st[k].dataAt != null;
+  const add = (k, f) => {
+    const at = st[k]?.ok === false ? st[k].dataAt : null;
+    if (at != null) {
+      f.staleAt = at;
+      if (nowMs - at > TH.staleMin * 6e4) f.level = worst(f.level, 'caution');
+    }
+    factors.push(f);
+  };
 
   // 1. Chain control (live)
   if (!src('chain')) factors.push({ key: 'chain', level: 'caution', msg: 'srcFailed' });
   else {
     const c = chainFor(data, r.highway, dir);
     const cv = chainVerdict(c.max, vehicle);
-    factors.push({ key: 'chain', level: live ? cv.level : 'info', msg: cv.msg, v: c, live });
+    add('chain', { key: 'chain', level: live ? cv.level : 'info', msg: cv.msg, v: c, live });
   }
 
-  // 2. Closures (scheduled + active lane closures)
+  // 2. Closures (scheduled + active lane closures), in the direction of travel
   if (!src('closures')) factors.push({ key: 'closures', level: 'caution', msg: 'srcFailed' });
   else {
-    const cl = closuresDuring(data, departMs, endMs);
+    const cl = closuresDuring(data, departMs, endMs, dir);
     const full = cl.filter(isFull);
     const delay = Math.max(0, ...cl.map((c) => c.delayMin));
     const level = full.length ? 'nogo' : cl.length && delay >= 15 ? 'caution' : 'ok';
-    factors.push({ key: 'closures', level, msg: full.length ? 'closedFull' : cl.length ? 'closedLanes' : 'closedNone', v: { list: cl, full, delay } });
+    add('closures', { key: 'closures', level, msg: full.length ? 'closedFull' : cl.length ? 'closedLanes' : 'closedNone', v: { list: cl, full, delay } });
   }
 
-  // 3. CHP incidents (live only)
+  // 3. CHP incidents (live only), in the direction of travel
   if (!src('incidents')) factors.push({ key: 'incidents', level: 'caution', msg: 'srcFailed' });
   else {
-    const serious = data.incidents.filter((x) => /collision|closure|sigalert|fatal|spin/i.test(x.type));
+    const all = incidentsFor(data, dir);
+    const serious = all.filter((x) => /collision|closure|sigalert|fatal|spin/i.test(x.type));
     const level = live && serious.length ? 'caution' : live ? 'ok' : 'info';
-    factors.push({ key: 'incidents', level, msg: data.incidents.length ? 'incSome' : 'incNone', v: { all: data.incidents, serious }, live });
+    add('incidents', { key: 'incidents', level, msg: all.length ? 'incSome' : 'incNone', v: { all, serious }, live });
   }
 
   // 4-6. Forecast for the drive window
   if (!src('alerts')) factors.push({ key: 'alerts', level: 'caution', msg: 'srcFailed' });
   const fc = forecastFactors(data, dest, departMs, direction, dt.hours);
-  for (const f of fc.factors) if (f.key !== 'alerts' || src('alerts')) factors.push(f);
+  for (const f of fc.factors) {
+    if (f.key !== 'alerts') factors.push(f);
+    else if (src('alerts')) add('alerts', f);
+  }
 
-  // Drive time (TomTom). Only an unusually slow drive changes the verdict.
-  if (st.drive?.ok === false) factors.push({ key: 'drive', level: 'info', msg: 'driveFailed' });
-  else if (dt.src !== 'fixed') factors.push({ key: 'drive', level: dt.deltaMin >= 60 ? 'caution' : 'ok', msg: dt.src === 'live' ? 'driveLive' : 'driveFc', v: dt });
+  // Drive time (TomTom). Only an unusually slow drive changes the verdict. Carried-over times are still used
+  // while they are recent enough for driveTime(); after that it falls back to the fixed estimate.
+  if (dt.src !== 'fixed') add('drive', { key: 'drive', level: dt.deltaMin >= 60 ? 'caution' : 'ok', msg: dt.src === 'live' ? 'driveLive' : 'driveFc', v: dt });
+  else if (st.drive?.ok === false) factors.push({ key: 'drive', level: 'info', msg: 'driveFailed' });
 
   // 7. Lift wind-hold risk on the ski day (arrival day for outbound trips)
   if (direction === 'out') {
