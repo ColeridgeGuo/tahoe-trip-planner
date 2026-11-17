@@ -123,9 +123,7 @@ async function liveChain() {
 // Inline SVG icons (Feather, MIT) so they render identically on every platform instead of as emoji.
 const svg = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const IC = {
-  auto: svg('<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/>'),
-  light: svg('<circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>'),
-  dark: svg('<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>'),
+  theme: svg('<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/>'),
   refresh: svg('<path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>'),
   settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>'),
 };
@@ -148,7 +146,7 @@ function renderChrome() {
     : `<strong>${esc(nm(d.name))}</strong>${sub}`) + '</span>';
   $('#toggles').innerHTML =
     seg('lang', S.lang, [['zh', '中', t('tip.zh')], ['en', 'EN', t('tip.en')]]) + seg('tu', S.tu, [['C', '°C', t('tip.C')], ['F', '°F', t('tip.F')]]) + seg('lu', S.lu, [['imp', 'in·ft', t('tip.imp')], ['met', 'cm·m', t('tip.met')]]) +
-    `<button class="icon" data-act="theme" data-tip="${t('tip.theme', { cur: t('th.' + S.theme), next: t('th.' + { auto: 'light', light: 'dark', dark: 'auto' }[S.theme]) })}" aria-label="${t('theme')}: ${t('th.' + S.theme)}">${IC[S.theme]}</button>` +
+    `<button class="icon" data-act="theme" data-tip="${t('tip.theme')}" aria-label="${t('theme')}: ${t('th.' + S.theme)}">${IC.theme}</button>` +
     `<button class="icon" data-act="refresh" data-tip="${t('tip.refresh')}" aria-label="${t('refresh')}">${IC.refresh}</button><button class="icon" data-act="settings" data-tip="${t('tip.settings')}" aria-label="${t('settings')}">${IC.settings}</button>`;
   $('#tabs').innerHTML = TABS.map((k) => `<a href="#${k}" class="${k === S.tab ? 'on' : ''}" ${k === S.tab ? 'aria-current="page"' : ''}>${t('tabs.' + k)}</a>`).join('');
   const st = S.data
@@ -395,7 +393,11 @@ document.addEventListener('click', (e) => {
     case 'lang': setPref('lang', v); break;
     case 'tu': setPref('tu', v); break;
     case 'lu': setPref('lu', v); break;
-    case 'theme': setPref('theme', { auto: 'light', light: 'dark', dark: 'auto' }[S.theme]); break;
+    case 'theme': { // one click always flips what is on screen; "match device" lives in settings
+      const dark = S.theme === 'dark' || (S.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+      setPref('theme', dark ? 'light' : 'dark');
+      break;
+    }
     case 'themeSet': setPref('theme', v); t = makeT(S.lang); openSettings(); break;
     case 'direction': setPref('direction', v); break;
     case 'mode': S.depart = v === 'now' ? 'now' : { day: L.dayKey(Date.now()), h: Math.min(23, L.hourOf(Date.now()) + 1) }; break;
