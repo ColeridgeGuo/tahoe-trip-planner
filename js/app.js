@@ -126,7 +126,7 @@ const dot = (level) => `<span class="dot ${level}"></span>`;
 const folded = new Set(store.get('folded', []));
 function card(key, title, body, extra = '', cls = '') {
   const c = folded.has(key);
-  return `<section class="card ${cls} ${c ? 'collapsed' : ''}" data-k="${key}"><h2><button class="fold" data-act="fold" data-v="${key}" aria-expanded="${!c}"><span class="chev" aria-hidden="true"></span><span>${title}</span></button>${extra}</h2><div class="cbody">${c ? '' : body}</div></section>`;
+  return `<section class="card ${cls} ${c ? 'collapsed' : ''}" data-k="${key}"><h2 data-act="fold" data-v="${key}"><button class="fold" type="button" aria-expanded="${!c}"><span class="chev" aria-hidden="true"></span><span>${title}</span></button>${extra}</h2><div class="cbody">${c ? '' : body}</div></section>`;
 }
 
 function renderChrome() {
@@ -402,7 +402,7 @@ document.addEventListener('click', (e) => {
       open ? folded.delete(v) : folded.add(v);
       store.set('folded', [...folded]);
       sec.classList.toggle('collapsed', !open);
-      b.setAttribute('aria-expanded', open);
+      sec.querySelector('.fold').setAttribute('aria-expanded', open);
       const body = sec.querySelector('.cbody');
       if (!open && v === 'rcams') { S.camsLoaded.clear(); body.innerHTML = ''; } // stop the streams
       if (open && !body.innerHTML.trim()) break; // was rendered collapsed: build it now

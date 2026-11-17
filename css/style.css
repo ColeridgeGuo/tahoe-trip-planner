@@ -180,5 +180,8 @@ footer{max-width:60rem;margin:auto;padding:0.25rem 1.25rem 1rem;font-size:0.7188
 .fold{display:inline-flex;align-items:center;gap:0.5rem;border:0;background:none;padding:0;margin:0;font:inherit;font-weight:inherit;color:inherit;text-align:left}
 .chev{flex:none;width:0.5rem;height:0.5rem;border-right:2px solid var(--mute);border-bottom:2px solid var(--mute);transform:rotate(45deg);margin:-0.2rem 0.15rem 0 0.15rem;transition:transform .15s}
 .collapsed .chev{transform:rotate(-45deg);margin-top:0}
-.card.collapsed h2{margin-bottom:0}
+/* the whole title row is the click target, out to the card edges */
+.card>h2[data-act=fold]{cursor:pointer;margin:-0.875rem -1rem 0;padding:0.875rem 1rem 0.625rem;border-radius:0.875rem;-webkit-tap-highlight-color:transparent;user-select:none}
+.card.collapsed>h2[data-act=fold]{padding-bottom:0.875rem;margin-bottom:-0.875rem}
+.fold{cursor:pointer}
 .card.collapsed .cbody{display:none}
