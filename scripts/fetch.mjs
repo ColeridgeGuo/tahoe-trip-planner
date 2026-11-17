@@ -1,11 +1,12 @@
 // Pulls official feeds (Caltrans, CHP, NWS) and writes one slim JSON per destination.
 // Node 22+, no dependencies. Run: node scripts/fetch.mjs
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { DESTINATIONS } from '../js/config.js';
-import { CC_URL, normalizeChain } from '../js/normalize.js';
+import { CC_URL, normalizeChain, incidentDir } from '../js/normalize.js';
 
 const UA = 'tahoe-trip-planner (personal trip dashboard, github pages)';
 const HOURS = 168;
+const MAX_CARRY_MS = 24 * 36e5; // older than this, a carried-over source is dropped rather than shown
 const pad = (d) => String(d).padStart(2, '0');
 
 async function get(url, { json = true, tries = 3, accept } = {}) {
@@ -26,16 +27,37 @@ async function get(url, { json = true, tries = 3, accept } = {}) {
   throw new Error(`${url}: ${err.message}`);
 }
 
-// Each source records ok/error so the UI can say "couldn't confirm" instead of silently passing.
-async function source(status, key, fn, fallback) {
+// The file published by the previous run (or left by a local run). A source that fails this time keeps
+// its last good data from here instead of going empty.
+async function previous(dest) {
+  const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
+  try {
+    if (owner) return await get(`https://${owner.toLowerCase()}.github.io/${repo}/data/${dest.id}.json`, { tries: 1 });
+  } catch { /* first run or site unreachable */ }
+  try {
+    return JSON.parse(await readFile(new URL(`../data/${dest.id}.json`, import.meta.url), 'utf8'));
+  } catch { return null; }
+}
+// Last good data for a source and when it was fetched, if the previous file has any that is recent enough.
+function carried(prev, key) {
+  const s = prev?.status?.[key];
+  const dataAt = s?.ok ? s.at : s?.dataAt;
+  return dataAt && prev[key] != null && Date.now() - dataAt < MAX_CARRY_MS ? { value: prev[key], dataAt } : null;
+}
+
+// Each source records ok/error. On failure the last good data is carried over and status.dataAt says how old
+// it is, so the UI can show its age; with nothing to carry over the UI says "couldn't confirm".
+async function source(status, key, fn, fallback, prev) {
   try {
     const v = await fn();
     status[key] = { ok: true, at: Date.now() };
     return v;
   } catch (e) {
     console.error(`[${key}] ${e.message}`);
-    status[key] = { ok: false, error: String(e.message).slice(0, 200), at: Date.now() };
-    return fallback;
+    const c = carried(prev, key);
+    status[key] = { ok: false, error: String(e.message).slice(0, 200), at: Date.now(), ...(c ? { dataAt: c.dataAt } : {}) };
+    if (c) console.error(`[${key}] carrying over data from ${Math.round((Date.now() - c.dataAt) / 6e4)} min ago`);
+    return c ? c.value : fallback;
   }
 }
 
@@ -127,10 +149,12 @@ function ptToMs(str) {
   }
   return guess + 8 * 36e5;
 }
-async function incidents(feeds) {
+async function incidents(feeds, route) {
   const xml = await get('https://media.chp.ca.gov/sa_xml/sa.xml', { json: false });
   const re = new RegExp(feeds.incidentMatch, 'i');
   const box = feeds.incidentBox;
+  const hwNum = route.highway.replace(/\D/g, '');
+  const dirs = [route.outboundDir, route.returnDir];
   const out = [];
   for (const log of xml.split('<Log ').slice(1)) {
     const ll = /(\d+):(\d+)/.exec(tag(log, 'LATLON'));
@@ -148,6 +172,7 @@ async function incidents(feeds) {
       type: tag(log, 'LogType').replace(/^\w+-/, ''),
       loc,
       desc,
+      dir: incidentDir(loc, desc, hwNum, dirs),
       area: tag(log, 'Area'),
       lat,
       lon,
@@ -178,6 +203,7 @@ async function nwsPoint(p, t0) {
   const meta = await get(`https://api.weather.gov/points/${p.lat},${p.lon}`, { accept: 'application/geo+json' });
   const g = (await get(meta.properties.forecastGridData, { accept: 'application/geo+json', tries: 4 })).properties;
   return {
+    at: Date.now(),
     elevM: g.elevation?.value ?? null,
     office: meta.properties.gridId,
     updated: g.updateTime,
@@ -191,6 +217,12 @@ async function nwsPoint(p, t0) {
     snow: hourly(g.snowfallAmount, t0, true),
     snowLevel: hourly(g.snowLevel, t0),
   };
+}
+// Hourly arrays start at the file's t0, so a forecast carried over from an earlier file is slid forward.
+function shiftWeather(w, shift) {
+  const out = { ...w };
+  for (const [k, v] of Object.entries(w)) if (Array.isArray(v)) out[k] = Array.from({ length: HOURS }, (_, i) => v[i + shift] ?? null);
+  return out;
 }
 async function alerts(points) {
   const seen = new Map();
@@ -243,7 +275,7 @@ async function ttRoute(points, departMs) {
 }
 // Live drive time both ways on every run; hourly forecasts for the next 24 h are refreshed about once an hour
 // and otherwise carried over from the previously published file, to stay well inside the free daily quota.
-async function drive(dest) {
+async function drive(dest, prevFile) {
   const pt = (id) => dest.route.points.find((p) => p.id === id);
   const way = [dest.route.points[0], ...dest.route.drivePins.map(pt), pt(dest.route.townPoint)];
   const dirs = { out: way, back: [...way].reverse() };
@@ -252,24 +284,30 @@ async function drive(dest) {
     res[k] = await ttRoute(pts);
     console.log(`drive ${k}: ${res[k].km} km, legs ${pts.map((p) => p.id).join(' > ')}: ${res[k].legs.map((l) => `${l.km}km/${l.min}min`).join(', ')}`);
   }
-  let prev = null;
-  try {
-    const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
-    if (owner) prev = (await get(`https://${owner.toLowerCase()}.github.io/${repo}/data/${dest.id}.json`, { tries: 1 })).drive;
-  } catch { /* first run or site unreachable: just recompute */ }
+  const prev = prevFile?.drive;
   if (prev?.hourly && Date.now() - prev.hourlyAt < 55 * 6e4) {
     res.hourlyAt = prev.hourlyAt;
     res.hourly = prev.hourly;
   } else {
     const h0 = Math.ceil(Date.now() / 36e5) * 36e5;
-    res.hourly = { out: [], back: [] };
-    for (let i = 0; i < 24; i++) {
-      for (const [k, pts] of Object.entries(dirs)) {
-        const r = await ttRoute(pts, h0 + i * 36e5);
-        res.hourly[k].push({ ms: h0 + i * 36e5, sec: r.sec, noTrafficSec: r.noTrafficSec });
+    const hourly = { out: [], back: [] };
+    try {
+      for (let i = 0; i < 24; i++) {
+        for (const [k, pts] of Object.entries(dirs)) {
+          const r = await ttRoute(pts, h0 + i * 36e5);
+          hourly[k].push({ ms: h0 + i * 36e5, sec: r.sec, noTrafficSec: r.noTrafficSec });
+        }
       }
+      res.hourly = hourly;
+      res.hourlyAt = Date.now();
+    } catch (e) {
+      // A failed forecast request must not throw away the live times above. Keep the last forecast (or the
+      // hours fetched so far) and leave hourlyAt old so the next run tries again.
+      console.error(`[drive] hourly forecast: ${e.message}`);
+      res.hourlyError = String(e.message).slice(0, 200);
+      res.hourly = prev?.hourly || hourly;
+      res.hourlyAt = prev?.hourly ? prev.hourlyAt : 0;
     }
-    res.hourlyAt = Date.now();
   }
   return res;
 }
@@ -281,25 +319,38 @@ for (const dest of DESTINATIONS) {
   const f = dest.feeds;
   const pts = dest.route.points;
   const t0 = Math.floor(Date.now() / 36e5) * 36e5;
+  const prev = await previous(dest);
   const [ch, cm, cl, inc, al] = await Promise.all([
-    source(status, 'chain', () => chain(f), []),
-    source(status, 'cams', () => cams(f), []),
-    source(status, 'closures', () => closures(f, dest.route.highway), []),
-    source(status, 'incidents', () => incidents(f), []),
-    source(status, 'alerts', () => alerts(pts.filter((p) => f.alertPoints.includes(p.id))), []),
+    source(status, 'chain', () => chain(f), [], prev),
+    source(status, 'cams', () => cams(f), [], prev),
+    source(status, 'closures', () => closures(f, dest.route.highway), [], prev),
+    source(status, 'incidents', () => incidents(f, dest.route), [], prev),
+    source(status, 'alerts', () => alerts(pts.filter((p) => f.alertPoints.includes(p.id))), [], prev),
   ]);
   const weather = {};
   const failed = [];
+  const kept = [];
   for (const p of pts) {
     try {
       weather[p.id] = await nwsPoint(p, t0);
     } catch (e) {
       console.error(`[weather:${p.id}] ${e.message}`);
-      failed.push(p.id);
+      // Keep this point's last good forecast, re-aligned to the new t0.
+      const old = prev?.weather?.[p.id];
+      const oldAt = old?.at ?? (prev?.status?.weather?.ok ? prev.generatedAt : null);
+      if (old && oldAt && Date.now() - oldAt < MAX_CARRY_MS) {
+        weather[p.id] = { ...shiftWeather(old, Math.round((t0 - prev.t0) / 36e5)), at: oldAt, carried: true };
+        kept.push(p.id);
+      } else failed.push(p.id);
     }
   }
-  const dr = TT_KEY ? await source(status, 'drive', () => drive(dest), null) : null;
-  status.weather = failed.length ? { ok: false, error: `missing: ${failed.join(', ')}`, at: Date.now() } : { ok: true, at: Date.now() };
+  const dr = TT_KEY ? await source(status, 'drive', () => drive(dest, prev), null, prev) : null;
+  if (dr?.hourlyError && status.drive.ok) status.drive.hourlyError = dr.hourlyError;
+  if (dr) delete dr.hourlyError;
+  const wxErr = [failed.length ? `missing: ${failed.join(', ')}` : '', kept.length ? `carried over: ${kept.join(', ')}` : ''].filter(Boolean).join('; ');
+  status.weather = wxErr
+    ? { ok: false, error: wxErr, at: Date.now(), ...(kept.length ? { dataAt: Math.min(...kept.map((id) => weather[id].at)) } : {}) }
+    : { ok: true, at: Date.now() };
   const out = { generatedAt: Date.now(), t0, hours: HOURS, status, chain: ch, closures: cl, incidents: inc, alerts: al, cams: cm, weather, drive: dr };
   await writeFile(new URL(`../data/${dest.id}.json`, import.meta.url), JSON.stringify(out));
   console.log(dest.id, Object.entries(status).map(([k, v]) => `${k}:${v.ok ? 'ok' : 'FAIL'}`).join(' '),

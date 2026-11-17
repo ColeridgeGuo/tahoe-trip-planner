@@ -10,6 +10,7 @@ export const STR = {
     f: { chain: '链条管制', closures: '封路 / 施工', incidents: 'CHP 事故', alerts: 'NWS 预警', snow: '垭口降雪', wind: '垭口大风', lift: '缆车停运风险', ev: '低温与续航', fresh: '数据新鲜度', drive: '车程' },
     m: {
       srcFailed: '这个数据源刚才没抓到，无法确认，出发前请到官方页面核实。',
+      srcStale: '这个数据源刚才没抓到，沿用 {v}的数据。',
       chainNone: '{hw} 全线没有链条管制。',
       chainR1Pass: '最高 R1（{where}）。你的车可以直接通过，链条随车带着。',
       chainR1PassNoChains: '最高 R1（{where}）。有雪胎可以通过，但建议带链条。',
@@ -66,7 +67,7 @@ export const STR = {
     tip: { zh: '中文', en: 'English', C: '摄氏度', F: '华氏度', imp: '英制', met: '公制', theme: '外观', refresh: '刷新数据', settings: '设置' },
     settings: '设置', theme: '外观', th: { auto: '跟随设备', light: '浅色', dark: '深色' }, lang: '语言', units: '单位', vehicle: '车辆', awd: '四驱 / AWD', twd: '两驱', snowTires: 'M+S 或雪胎', chains: '随车带链条', ev: '电车',
     syncTitle: '清单跨设备同步', syncHelp: '在 GitHub 生成一个只勾选 gist 权限的令牌，每台设备粘贴一次。清单存在你自己的私密 Gist 里，令牌只保存在这台设备的浏览器里。', tokenPh: 'GitHub 令牌 (ghp_… 或 github_pat_…)', save: '保存并同步', disconnect: '断开', makeToken: '生成令牌', close: '关闭',
-    dest: '目的地', refresh: '刷新', dataAt: '数据', chainLive: '链条', ago: '{v}前', min: '分钟', hr: '小时', justNow: '刚刚', loading: '加载中…', loadFail: '数据加载失败', srcs: '数据来源：Caltrans、CHP、NWS、TomTom。估算仅供参考，上路前以官方信息为准。',
+    dest: '目的地', refresh: '刷新', dataAt: '数据', chainLive: '链条', ago: '{v}前', min: '分钟', hr: '小时', justNow: '刚刚', loading: '加载中…', loadFail: '数据加载失败', srcStaleTag: '沿用 {v}的数据', srcs: '数据来源：Caltrans、CHP、NWS、TomTom。估算仅供参考，上路前以官方信息为准。',
   },
   en: {
     tabs: { verdict: 'Verdict', weather: 'Weather', roads: 'Roads', wear: 'Wear', resort: 'Resort', list: 'List' },
@@ -79,6 +80,7 @@ export const STR = {
     f: { chain: 'Chain control', closures: 'Closures / roadwork', incidents: 'CHP incidents', alerts: 'NWS alerts', snow: 'Snow on the pass', wind: 'Wind on the pass', lift: 'Lift wind-hold risk', ev: 'Cold and range', fresh: 'Data freshness', drive: 'Drive time' },
     m: {
       srcFailed: 'This source failed on the last refresh, so it is unconfirmed. Check the official page before leaving.',
+      srcStale: 'This source failed on the last refresh; showing data from {v}.',
       chainNone: 'No chain controls anywhere on {hw}.',
       chainR1Pass: 'Up to R1 ({where}). Your car passes as is; keep the chains in the car.',
       chainR1PassNoChains: 'Up to R1 ({where}). Snow tires pass, but carry chains.',
@@ -135,7 +137,7 @@ export const STR = {
     tip: { zh: '中文', en: 'English', C: 'Celsius', F: 'Fahrenheit', imp: 'Imperial', met: 'Metric', theme: 'Appearance', refresh: 'Refresh data', settings: 'Settings' },
     settings: 'Settings', theme: 'Appearance', th: { auto: 'Match device', light: 'Light', dark: 'Dark' }, lang: 'Language', units: 'Units', vehicle: 'Vehicle', awd: '4WD / AWD', twd: '2WD', snowTires: 'M+S or snow tires', chains: 'Chains in the car', ev: 'Electric',
     syncTitle: 'Sync the list across devices', syncHelp: 'Create a GitHub token with only the gist scope and paste it once per device. The list lives in a private Gist of yours; the token stays in this browser.', tokenPh: 'GitHub token (ghp_… or github_pat_…)', save: 'Save and sync', disconnect: 'Disconnect', makeToken: 'Create token', close: 'Close',
-    dest: 'Destination', refresh: 'Refresh', dataAt: 'Data', chainLive: 'Chains', ago: '{v} ago', min: 'min', hr: 'h', justNow: 'just now', loading: 'Loading…', loadFail: 'Could not load data', srcs: 'Sources: Caltrans, CHP, NWS, TomTom. Estimates are guidance only; trust official information before you drive.',
+    dest: 'Destination', refresh: 'Refresh', dataAt: 'Data', chainLive: 'Chains', ago: '{v} ago', min: 'min', hr: 'h', justNow: 'just now', loading: 'Loading…', loadFail: 'Could not load data', srcStaleTag: 'Data from {v}', srcs: 'Sources: Caltrans, CHP, NWS, TomTom. Estimates are guidance only; trust official information before you drive.',
   },
 };
 
