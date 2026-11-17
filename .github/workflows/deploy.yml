@@ -5,8 +5,8 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    # Every 15 minutes. GitHub may delay scheduled runs; the page also pulls chain control live from Caltrans.
-    - cron: '7,22,37,52 * * * *'
+    # Every 15 minutes from the top of the hour. GitHub may delay scheduled runs; the page also pulls chain control live from Caltrans.
+    - cron: '0,15,30,45 * * * *'
 
 permissions:
   contents: read
