@@ -5,8 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
   schedule:
-    # Every 15 minutes from the top of the hour. GitHub may delay scheduled runs; the page also pulls chain control live from Caltrans.
-    - cron: '0,15,30,45 * * * *'
+    # Every 15 minutes, offset from the top of the hour where GitHub's scheduler is busiest.
+    # Scheduled runs can still be delayed; the page also pulls chain control live from Caltrans.
+    - cron: '7,22,37,52 * * * *'
 
 permissions:
   contents: read
