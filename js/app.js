@@ -26,6 +26,7 @@ const S = {
   data: null,
   ix: null,
   error: null,
+  offline: false, // showing the last saved data because the network could not be reached
   chainLiveAt: null,
   camsLoaded: new Set(),
   mapShow: { traffic: false, inc: true, clos: false, cams: false, ...store.get('mapShow', {}) },
@@ -89,6 +90,9 @@ function departMs() {
   return h ? Math.max(h.ms, Date.now()) : Date.now();
 }
 
+// "Live" only holds while the network is reachable; offline, say how old the reading is instead.
+const liveTag = (at) => (S.offline ? fAgo(at || S.data.generatedAt) : t('liveTag'));
+
 async function loadData() {
   try {
     const r = await fetch(`data/${S.destId}.json?ts=${Math.floor(Date.now() / 6e4)}`, { cache: 'no-store' });
@@ -99,8 +103,10 @@ async function loadData() {
     if (liveChain) { d.chain = liveChain; d.status.chain = { ok: true, at: S.chainLiveAt }; }
     S.ix = L.index(d);
     S.error = null;
+    S.offline = r.headers.get('X-Offline-Copy') === '1'; // set by sw.js when it had to fall back to its saved copy
   } catch (e) {
     S.error = String(e.message || e);
+    S.offline = !!S.data;
   }
   softRender();
   liveChain();
@@ -157,9 +163,12 @@ function renderChrome() {
     `<button class="icon" data-act="refresh" data-tip="${t('tip.refresh')}" aria-label="${t('refresh')}">${IC.refresh}</button><button class="icon" data-act="settings" data-tip="${t('tip.settings')}" aria-label="${t('settings')}">${IC.settings}</button>`;
   $('#tabs').innerHTML = TABS.map((k) => `<a href="#${k}" class="${k === S.tab ? 'on' : ''}" ${k === S.tab ? 'aria-current="page"' : ''}>${t('tabs.' + k)}</a>`).join('');
   const st = S.data
-    ? `${t('dataAt')} ${fAgo(S.data.generatedAt)}${S.chainLiveAt ? ` · ${t('chainLive')} ${t('liveTag')} ${fAgo(S.chainLiveAt)}` : ''}`
+    ? `${t('dataAt')} ${fAgo(S.data.generatedAt)}${S.chainLiveAt ? ` · ${t('chainLive')} ${S.offline ? '' : t('liveTag') + ' '}${fAgo(S.chainLiveAt)}` : ''}`
     : S.error ? `${t('loadFail')}: ${esc(S.error)}` : t('loading');
   $('#status').textContent = st;
+  const off = $('#offline');
+  off.hidden = !(S.offline && S.data);
+  if (!off.hidden) off.textContent = t('offline', { when: fWhen(S.data.generatedAt), ago: fAgo(S.data.generatedAt) });
   $('#foot').textContent = t('srcs');
 }
 
@@ -334,7 +343,7 @@ function viewVerdict() {
 
   const order = { nogo: 0, caution: 1, ok: 2, info: 3 };
   const factors = [...ev.factors].sort((a, b) => order[a.level] - order[b.level]).map((f) => {
-    const tag = f.staleAt ? fAgo(f.staleAt) : ['chain', 'incidents'].includes(f.key) || f.msg === 'driveLive' ? t('liveTag') : f.msg === 'driveFc' ? t('fcTag') : ['snow', 'alerts', 'wind', 'lift', 'ev'].includes(f.key) ? t('fcTag') : '';
+    const tag = f.staleAt ? fAgo(f.staleAt) : ['chain', 'incidents'].includes(f.key) || f.msg === 'driveLive' ? liveTag(f.key === 'chain' && S.chainLiveAt) : f.msg === 'driveFc' ? t('fcTag') : ['snow', 'alerts', 'wind', 'lift', 'ev'].includes(f.key) ? t('fcTag') : '';
     const link = { chain: '#roads', closures: '#roads', incidents: '#roads', snow: '#weather', lift: '#resort', drive: '#roads' }[f.key];
     return `<li class="${f.level}">${dot(f.level)}<div><div class="ft">${t('f.' + f.key)}${tag ? `<span class="tag">${tag}</span>` : ''}${link ? `<a class="more" href="${link}">›</a>` : ''}</div><div class="fm">${factorText(f)}${f.staleAt ? ` <span class="muted">${t('m.srcStale', { v: fAgo(f.staleAt) })}</span>` : ''}</div></div></li>`;
   }).join('');
@@ -429,7 +438,7 @@ function viewRoads() {
 
   // A failed source shows how old its carried-over data is, or "failed" when there is none.
   const st = (k) => { const s = S.data.status[k]; return s?.ok === false ? `<span class="tag bad">${s.dataAt ? t('srcStaleTag', { v: fAgo(s.dataAt) }) : t('loadFail')}</span>` : ''; };
-  return dirSeg + card('map', `${r.label} ${t('mapTitle')}`, mapHtml) + card('chain', `${r.label} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? t('liveTag') : fAgo(S.data.generatedAt)}</span>${st('chain')}`) +
+  return dirSeg + card('map', `${r.label} ${t('mapTitle')}`, mapHtml) + card('chain', `${r.label} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? liveTag(S.chainLiveAt) : fAgo(S.data.generatedAt)}</span>${st('chain')}`) +
     card('alts', t('altTitle'), alts) + card('inc', t('incTitle'), inc, st('incidents')) + card('clos', t('closTitle'), clos, st('closures')) + card('cams', t('camTitle'), cams, st('cams')) + `<p class="note pad0">${t('srcTextNote')} · ${t('chainDir', { dir: dirLabel })}</p>`;
 }
 
@@ -578,6 +587,13 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
   if (S.theme === (e.matches ? 'dark' : 'light')) { setPref('theme', 'auto'); renderChrome(); }
   drawMap();
 });
+
+window.addEventListener('online', () => { loadData(); if (list.hasToken()) list.sync(); });
+if ('serviceWorker' in navigator) {
+  // On the very first visit the worker takes over after the data was already fetched; fetch once more so a copy is saved.
+  navigator.serviceWorker.addEventListener('controllerchange', () => loadData());
+  navigator.serviceWorker.register('sw.js').catch((e) => console.warn('offline', e));
+}
 
 render();
 loadData();

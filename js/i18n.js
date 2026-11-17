@@ -67,7 +67,7 @@ export const STR = {
     tip: { zh: '中文', en: 'English', C: '摄氏度', F: '华氏度', imp: '英制', met: '公制', theme: '外观', refresh: '刷新数据', settings: '设置' },
     settings: '设置', theme: '外观', th: { auto: '跟随设备', light: '浅色', dark: '深色' }, lang: '语言', units: '单位', vehicle: '车辆', awd: '四驱 / AWD', twd: '两驱', snowTires: 'M+S 或雪胎', chains: '随车带链条', ev: '电车',
     syncTitle: '清单跨设备同步', syncHelp: '在 GitHub 生成一个只勾选 gist 权限的令牌，每台设备粘贴一次。清单存在你自己的私密 Gist 里，令牌只保存在这台设备的浏览器里。', tokenPh: 'GitHub 令牌 (ghp_… 或 github_pat_…)', save: '保存并同步', disconnect: '断开', makeToken: '生成令牌', close: '关闭',
-    dest: '目的地', refresh: '刷新', dataAt: '数据', chainLive: '链条', ago: '{v}前', min: '分钟', hr: '小时', justNow: '刚刚', loading: '加载中…', loadFail: '数据加载失败', srcStaleTag: '沿用 {v}的数据', srcs: '数据来源：Caltrans、CHP、NWS、TomTom。估算仅供参考，上路前以官方信息为准。',
+    dest: '目的地', refresh: '刷新', dataAt: '数据', chainLive: '链条', ago: '{v}前', min: '分钟', hr: '小时', justNow: '刚刚', loading: '加载中…', loadFail: '数据加载失败', srcStaleTag: '沿用 {v}的数据', offline: '离线 · 显示的是{when}的数据（{ago}）', srcs: '数据来源：Caltrans、CHP、NWS、TomTom。估算仅供参考，上路前以官方信息为准。',
   },
   en: {
     tabs: { verdict: 'Verdict', weather: 'Weather', roads: 'Roads', wear: 'Wear', resort: 'Resort', list: 'List' },
@@ -137,7 +137,7 @@ export const STR = {
     tip: { zh: '中文', en: 'English', C: 'Celsius', F: 'Fahrenheit', imp: 'Imperial', met: 'Metric', theme: 'Appearance', refresh: 'Refresh data', settings: 'Settings' },
     settings: 'Settings', theme: 'Appearance', th: { auto: 'Match device', light: 'Light', dark: 'Dark' }, lang: 'Language', units: 'Units', vehicle: 'Vehicle', awd: '4WD / AWD', twd: '2WD', snowTires: 'M+S or snow tires', chains: 'Chains in the car', ev: 'Electric',
     syncTitle: 'Sync the list across devices', syncHelp: 'Create a GitHub token with only the gist scope and paste it once per device. The list lives in a private Gist of yours; the token stays in this browser.', tokenPh: 'GitHub token (ghp_… or github_pat_…)', save: 'Save and sync', disconnect: 'Disconnect', makeToken: 'Create token', close: 'Close',
-    dest: 'Destination', refresh: 'Refresh', dataAt: 'Data', chainLive: 'Chains', ago: '{v} ago', min: 'min', hr: 'h', justNow: 'just now', loading: 'Loading…', loadFail: 'Could not load data', srcStaleTag: 'Data from {v}', srcs: 'Sources: Caltrans, CHP, NWS, TomTom. Estimates are guidance only; trust official information before you drive.',
+    dest: 'Destination', refresh: 'Refresh', dataAt: 'Data', chainLive: 'Chains', ago: '{v} ago', min: 'min', hr: 'h', justNow: 'just now', loading: 'Loading…', loadFail: 'Could not load data', srcStaleTag: 'Data from {v}', offline: 'Offline · showing data from {when} ({ago})', srcs: 'Sources: Caltrans, CHP, NWS, TomTom. Estimates are guidance only; trust official information before you drive.',
   },
 };
 
