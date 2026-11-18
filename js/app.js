@@ -514,11 +514,17 @@ function openSettings() {
     <h3>${t('theme')}</h3>${seg('themeSet', S.theme, [['auto', t('th.auto')], ['light', t('th.light')], ['dark', t('th.dark')]])}
     <h3>${t('vehicle')}</h3>${seg('drive', v.drive, [['awd', t('awd')], ['2wd', t('twd')]])}<div class="chks">${chk('snowTires', t('snowTires'))}${chk('chains', t('chains'))}${chk('ev', t('ev'))}</div>
     <h3>${t('syncTitle')}</h3><p class="note">${t('syncHelp')} <a href="https://github.com/settings/tokens/new?scopes=gist&description=Tahoe%20Run%20checklist" target="_blank" rel="noopener">${t('makeToken')} ↗</a></p>
-    ${list.hasToken() ? `<p><span class="tag ${list.status()}">${t('sync.' + list.status())}</span> <button type="button" class="ghost" data-act="disconnect">${t('disconnect')}</button></p>`
+    ${list.hasToken() ? `<p><span class="tag ${list.status()}">${t('sync.' + list.status())}</span> <button type="button" class="ghost" data-act="disconnect">${t('disconnect')}</button></p>${list.status() === 'err' ? `<p class="note">${syncWhy()}</p>` : ''}`
       : `<div class="add"><input id="token" type="password" autocomplete="off" placeholder="${t('tokenPh')}"><button type="button" data-act="connect">${t('save')}</button></div>`}
     <h3>${t('al.title')}</h3><p class="note">${t('al.help')}</p>${alertSettings()}
     <button class="ghost close">${t('close')}</button></form>`;
   if (!$('#dlg').open) $('#dlg').showModal();
+}
+// Why the checklist sync failed, in words: the token was rejected, lacks the gist permission, or GitHub was unreachable.
+function syncWhy() {
+  const e = list.error();
+  const code = +(/GitHub (\d+)/.exec(e) || [])[1];
+  return `${t(code === 401 ? 'syncWhy.token' : code === 403 || code === 404 ? 'syncWhy.scope' : code ? 'syncWhy.github' : 'syncWhy.net')} <span class="muted">(${esc(e)})</span>`;
 }
 function alertSettings() {
   const why = alerts.blocker();
