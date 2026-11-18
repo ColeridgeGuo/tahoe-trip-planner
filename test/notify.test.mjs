@@ -254,3 +254,13 @@ describe('a source failed on this run', () => {
     assert.equal(m.told.level, 'go');
   });
 });
+
+describe('snow and the drive time in a notification', () => {
+  test('the estimated extra time for snow is said next to the drive time', () => {
+    const m = say(undefined, cur({ level: 'caution', why: ['snow'], drive: true, sec: 13320, snowMin: [45, 90] }));
+    assert.match(m.body, /3:42/);
+    assert.match(m.body, /45–90/);
+    assert.equal(m.told.snowMin, undefined); // not part of what is compared next time
+    assert.doesNotMatch(say(undefined, cur({ drive: true, sec: 13320 })).body, /雪天/);
+  });
+});

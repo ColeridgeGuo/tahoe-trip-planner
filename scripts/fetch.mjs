@@ -375,7 +375,11 @@ for (const dest of DESTINATIONS) {
     const mtn = dest.route.mountainPoints;
     const lv = (dir) => { const m = status.chain.ok ? chainFor(out, dest.route.highway, dir).max : -1; return m < 0 ? null : m; };
     const now0 = (field) => mtn.map((id) => weather[id]?.[field]?.[0] ?? null);
-    history = addHistory(history, { t: t0, e: lv(dest.route.outboundDir), w: lv(dest.route.returnDir), s: now0('snow'), c: now0('temp') }, mtn);
+    // The live drive time each way and the part of it on the mountain section: every leg but the long one
+    // that starts or ends at the origin. Only from a reading taken on this run, not one carried over.
+    const mtnMin = (x, out) => (out ? x.legs.slice(1) : x.legs.slice(0, -1)).reduce((s, l) => s + l.min, 0);
+    const live = dr && status.drive.ok ? { d: [dr.out.sec, dr.back.sec], m: [mtnMin(dr.out, true), mtnMin(dr.back, false)] } : {};
+    history = addHistory(history, { t: t0, e: lv(dest.route.outboundDir), w: lv(dest.route.returnDir), s: now0('snow'), c: now0('temp'), ...live }, mtn);
     await writeFile(new URL('../data/history.json', import.meta.url), JSON.stringify(history));
   }
   await writeFile(new URL(`../data/${dest.id}.json`, import.meta.url), JSON.stringify(out));

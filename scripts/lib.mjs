@@ -65,12 +65,16 @@ export function pastSnow(prev, id, t0) {
 // data/history.json so the snow thresholds in js/logic.js can be checked against real storms.
 //   t: start of the hour; e / w: highest level eastbound / westbound (0 none, 1-3 R level, 4 closed, null: feed failed)
 //   s / c: mm of snow per hour and °C at `points`, in that order
+//   d: the live TomTom drive time out / back in seconds, and m: of that, the minutes on the mountain section
+//      (between the first route pin and the town), the longest seen in the hour. For working out how much
+//      snow and chain control really add to the drive. Absent on rows from before these were kept.
 export const HISTORY_MAX = 24 * 60; // about two months
 export function addHistory(hist, row, points) {
   const rows = Array.isArray(hist?.rows) ? hist.rows : [];
   const same = rows.find((r) => r.t === row.t);
   const hi = (a, b) => (a == null ? b : b == null ? a : Math.max(a, b));
-  const merged = same ? { ...row, e: hi(same.e, row.e), w: hi(same.w, row.w) } : row;
+  const his = (a, b) => (a || b ? [0, 1].map((i) => hi(a?.[i] ?? null, b?.[i] ?? null)) : undefined);
+  const merged = same ? { ...row, e: hi(same.e, row.e), w: hi(same.w, row.w), ...(same.d || row.d ? { d: his(same.d, row.d), m: his(same.m, row.m) } : {}) } : row;
   return { v: 1, points, rows: [...rows.filter((r) => r.t !== row.t), merged].sort((a, b) => a.t - b.t).slice(-HISTORY_MAX) };
 }
 

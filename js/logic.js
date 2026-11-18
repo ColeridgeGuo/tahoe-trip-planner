@@ -23,6 +23,11 @@ export const TH = {
   packTemp: 1,
   staleMin: 120,
   liveHorizonH: 6, // live road status only decides trips starting this soon
+  // Extra drive time on the mountain section in snow, in minutes [from, to]. TomTom's times for a later
+  // departure come from its usual traffic for that hour and know nothing about snow. Rough figures: the 30
+  // miles of chain-control road take about 35 min dry and about twice that at the 25-30 mph limit, plus the
+  // queue at the checkpoint. To be checked against the real drive times kept in data/history.json.
+  snowDelay: { light: [20, 40], heavy: [45, 90] },
   closureMarginMin: 30, // a closure counts if it is in force within this long of when the drive passes it
 };
 
@@ -161,7 +166,9 @@ const ALERT_ROAD = /winter storm warning|winter weather advisory|snow squall|fre
 export const alertLevel = (event) => (ALERT_NOGO.test(event) ? 'nogo' : ALERT_ROAD.test(event) ? 'caution' : 'ok');
 
 // Forecast-only factors for a given departure. Used for the verdict and the hour-by-hour strip.
-export function forecastFactors(data, dest, departMs, direction, hours = dest.route.driveHours, nowMs = Date.now(), stopSec = null) {
+// With `vehicle`, snow heavy enough (or enough of it lying) that chain control is very likely is judged for
+// that vehicle as R2 would be: a car that needs chains and has none is a no-go, not just a caution.
+export function forecastFactors(data, dest, departMs, direction, hours = dest.route.driveHours, nowMs = Date.now(), stopSec = null, vehicle = null) {
   const r = dest.route;
   const stops = alongRoute(data, dest, departMs, direction, hours, stopSec);
   const mtn = stops.filter((s) => r.mountainPoints.includes(s.point.id));
@@ -201,6 +208,18 @@ export function forecastFactors(data, dest, departMs, direction, hours = dest.ro
   else if (peak.rate >= TH.snowHeavy) factors.push({ key: 'snow', level: 'caution', msg: 'snowHeavy', v: peak });
   else if (peak.rate >= TH.snowLight) factors.push({ key: 'snow', level: 'caution', msg: 'snowLight', v: peak });
   else factors.push({ key: 'snow', level: 'ok', msg: peak.rate > 0 ? 'snowTrace' : 'snowNone', v: peak });
+  const snow = factors[factors.length - 1];
+  // How much the snow is expected to add to the drive, and what the chain control it brings means for this car.
+  const kind = snow.msg === 'snowHeavy' || snow.msg === 'snowExtreme' ? 'heavy' : snow.msg === 'snowLight' || snow.msg === 'snowPack' ? 'light' : null;
+  const delay = kind ? TH.snowDelay[kind] : null;
+  if (vehicle && kind) {
+    // Heavy snow or snow lying on the road: expect R2. Light snow: R1 at most, and only worth a reminder.
+    const r2 = kind === 'heavy' || snow.msg === 'snowPack';
+    const cv = chainVerdict(r2 ? 2 : 1, vehicle);
+    if (r2 && cv.level === 'nogo') { snow.level = 'nogo'; snow.need = cv.msg === 'chainR2Carry' ? 'fcCarry' : 'fcNoChains'; }
+    else if (r2 && cv.msg === 'chainInstall') snow.need = 'fcInstall';
+    else if (!r2 && cv.level === 'nogo') snow.need = 'fcLight';
+  }
 
   // NWS alerts overlapping the drive.
   const endMs = departMs + hours * 36e5;
@@ -215,7 +234,7 @@ export function forecastFactors(data, dest, departMs, direction, hours = dest.ro
   for (const f of factors) if (f.key === 'snow' || f.key === 'wind') stamp(f, wxAt, nowMs);
 
   // `heavy`: snowing hard enough that chain control is very likely, so the charts can tell it from light snow.
-  return { factors, stops, level: factors.reduce((l, f) => worst(l, f.level), 'ok'), heavy: peak.rate >= TH.snowHeavy };
+  return { factors, stops, level: factors.reduce((l, f) => worst(l, f.level), 'ok'), heavy: peak.rate >= TH.snowHeavy, delay };
 }
 
 // What a given chain level means for this vehicle.
@@ -294,7 +313,7 @@ export function evaluate(data, dest, opts) {
   const live = departMs - nowMs <= TH.liveHorizonH * 36e5;
   const st = data.status || {};
   const factors = [];
-  const fc = forecastFactors(data, dest, departMs, direction, dt.hours, nowMs, dt.stops);
+  const fc = forecastFactors(data, dest, departMs, direction, dt.hours, nowMs, dt.stops, vehicle);
   // A source that failed on the last refresh either has nothing (unconfirmed), or still carries its last good
   // data: that is judged as usual, tagged with its age, and no better than caution once it is too old.
   const src = (k) => st[k]?.ok !== false || st[k].dataAt != null;
@@ -338,6 +357,10 @@ export function evaluate(data, dest, opts) {
 
   // Drive time (TomTom). Only an unusually slow drive changes the verdict. Carried-over times are still used
   // while they are recent enough for driveTime(); after that it falls back to the fixed estimate.
+  // Snow on the way adds time TomTom does not know about. The one exception: leaving now with chain control
+  // already up, where the live time has the slow traffic in it.
+  const chainNow = factors.find((f) => f.key === 'chain')?.v?.max > 0;
+  if (fc.delay && !(dt.src === 'live' && chainNow)) dt.snowMin = fc.delay;
   if (dt.src !== 'fixed') add('drive', { key: 'drive', level: dt.deltaMin >= 60 ? 'caution' : 'ok', msg: dt.src === 'live' ? 'driveLive' : 'driveFc', v: dt });
   else if (st.drive?.ok === false) factors.push({ key: 'drive', level: 'info', msg: 'driveFailed' });
 
@@ -366,7 +389,7 @@ export function evaluate(data, dest, opts) {
 }
 
 // Hour-by-hour departure risk for one day, forecast-only.
-export function departureStrip(data, dest, ix, day, direction, nowMs = Date.now()) {
+export function departureStrip(data, dest, ix, day, direction, nowMs = Date.now(), vehicle = null) {
   // Always 24 columns: hours earlier today that the forecast no longer covers are shown as past.
   const have = ix.hours.filter((h) => h.day === day);
   const first = have[0];
@@ -375,7 +398,7 @@ export function departureStrip(data, dest, ix, day, direction, nowMs = Date.now(
     .map((h) => {
       if (h.i < 0) return { ...h, past: true, level: 'ok', drive: null };
       const dt = driveTime(data, dest, Math.max(h.ms, nowMs), direction, nowMs);
-      const fc = forecastFactors(data, dest, h.ms, direction, dt.hours, nowMs, dt.stops);
+      const fc = forecastFactors(data, dest, h.ms, direction, dt.hours, nowMs, dt.stops, vehicle);
       return { ...h, past: h.ms + 36e5 <= nowMs, level: fc.level, heavy: fc.heavy, drive: dt.src === 'fixed' ? null : dt };
     });
 }
@@ -394,11 +417,11 @@ export function bestWindow(strip, from = 5, to = 21) {
 
 // One row per day for the week overview: 24 hourly departures each (level + drive time), the fastest
 // low-risk departure of the day within the usual waking window, and the range of drive times shown.
-export function weekOverview(data, dest, ix, direction, nowMs = Date.now(), from = 5, to = 21) {
+export function weekOverview(data, dest, ix, direction, nowMs = Date.now(), from = 5, to = 21, vehicle = null) {
   let lo = Infinity;
   let hi = -Infinity;
   const rows = ix.days.map((day) => {
-    const byH = new Map(departureStrip(data, dest, ix, day, direction, nowMs).map((s) => [s.h, s]));
+    const byH = new Map(departureStrip(data, dest, ix, day, direction, nowMs, vehicle).map((s) => [s.h, s]));
     const cells = Array.from({ length: 24 }, (_, h) => byH.get(h) || { h, day, none: true });
     let best = null;
     for (const c of cells) {

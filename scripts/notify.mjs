@@ -35,6 +35,7 @@ export function planState(data, dest, plan, vehicle, nowMs = Date.now()) {
     level: ev.level,
     drive: ev.drive.src !== 'fixed', // false: no TomTom time for this departure, the fixed estimate was used
     ...(ev.drive.src !== 'fixed' ? { sec: Math.round(ev.drive.sec) } : {}), // the TomTom drive time, when there is one
+    ...(ev.drive.src !== 'fixed' && ev.drive.snowMin ? { snowMin: ev.drive.snowMin } : {}), // minutes the snow is expected to add, [from, to]
     chain: chainFor(data, r.highway, ev.dir).max,
     why: worst > 0 ? ev.factors.filter((f) => LV[f.level] === worst).map((f) => f.key) : [],
     ...(partial.length ? { partial } : {}),
@@ -73,7 +74,7 @@ export function decide(told, cur, plan, dest, lang, nowMs = Date.now()) {
   const why = cur.why.length ? '\n' + t('al.nWhy', { list: cur.why.map((k) => t('f.' + k)).join(lang === 'zh' ? '、' : ', ') }) : '';
   const due = summariesDue(plan, nowMs);
   const flags = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v));
-  const driveTxt = cur.sec != null ? t('al.nDriveNow', { v: fDur(cur.sec) }) : '';
+  const driveTxt = cur.sec != null ? t('al.nDriveNow', { v: fDur(cur.sec) }) + (cur.snowMin ? t('al.nDriveSnow', { a: cur.snowMin[0], b: cur.snowMin[1] }) : '') : '';
   if (!told) {
     // A summary whose moment has already passed is not sent later: the message below says the same.
     const now = { level: cur.level, chain: cur.chain, drive: cur.drive, ...(cur.sec != null ? { sec: cur.sec } : {}), ...flags(due) };

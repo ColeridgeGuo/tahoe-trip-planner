@@ -231,6 +231,14 @@ describe('hourly record of real chain control', () => {
     const h = addHistory(addHistory(null, row({ e: 2 }), []), row({ e: null, w: null }), []);
     assert.deepEqual([h.rows[0].e, h.rows[0].w], [2, 0]);
   });
+  test('the live drive time is kept as the longest seen in the hour, and survives a run without one', () => {
+    let h = addHistory(null, row({ d: [12900, 12000], m: [35, 38] }), []);
+    h = addHistory(h, row({ d: [15000, 11900], m: [70, 37] }), []);
+    assert.deepEqual([h.rows[0].d, h.rows[0].m], [[15000, 12000], [70, 38]]);
+    h = addHistory(h, row(), []); // TomTom failed on this run
+    assert.deepEqual([h.rows[0].d, h.rows[0].m], [[15000, 12000], [70, 38]]);
+    assert.equal('d' in addHistory(null, row(), []).rows[0], false);
+  });
   test('rows stay in time order and the oldest drop off', () => {
     let h = null;
     for (let i = 0; i < HISTORY_MAX + 5; i++) h = addHistory(h, row({ t: T + i * H }), []);
