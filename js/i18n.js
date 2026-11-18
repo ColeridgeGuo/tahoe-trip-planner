@@ -6,6 +6,8 @@ export const STR = {
     out: '去程', back: '返程', now: '现在出发', pick: '选时间', today: '今天', tomorrow: '明天',
     departAt: '出发', arriveAt: '预计到达', basis: '依据', liveTag: '实时', fcTag: '预报', refOnly: '当前状态，仅供参考',
     driveLabel: '车程', stripDrive: '下排数字是那个时间出发的预计车程（时:分），来自 TomTom。', stripTitle: '这一天几点出发', stripHint: '只看预报（降雪、预警、大风）。点一格切换出发时间。', bestWin: '建议出发窗口', noWin: '这一天没有干净的出发窗口',
+    wkTitle: '未来 7 天几点出发', wkOk: '预报无碍', wkCaution: '要小心', wkNogo: '别去',
+    wkHint: '颜色只看预报（降雪、预警、大风），柱子越高那个时间出发的车程越长。每天名字下面是 5–21 时之间最快的出发时间和车程（时:分），图上顶部多一道边的就是那一格，车程来自 TomTom；后几天每 2 小时一个预测点，中间按前后两点估算。浅灰是已经过去的时间，或暂时没有车程预测。点一格切到那个时间。',
     alongTitle: '沿途经过时的天气', time: '时间', temp: '气温', snowRate: '降雪', snowLevel: '雪线', gust: '阵风', pop: '降水概率',
     f: { chain: '链条管制', closures: '封路 / 施工', incidents: 'CHP 事故', alerts: 'NWS 预警', snow: '垭口降雪', wind: '垭口大风', lift: '缆车停运风险', ev: '低温与续航', fresh: '数据新鲜度', drive: '车程' },
     m: {
@@ -87,6 +89,8 @@ export const STR = {
     out: 'Outbound', back: 'Return', now: 'Leave now', pick: 'Pick a time', today: 'Today', tomorrow: 'Tomorrow',
     departAt: 'Depart', arriveAt: 'Arrive about', basis: 'Why', liveTag: 'Live', fcTag: 'Forecast', refOnly: 'Current status, for reference only',
     driveLabel: 'Drive', stripDrive: 'The lower numbers are the expected drive time (h:mm) for leaving at that hour, from TomTom.', stripTitle: 'When to leave that day', stripHint: 'Forecast only (snow, alerts, wind). Tap an hour to set the departure.', bestWin: 'Suggested window', noWin: 'No clean window that day',
+    wkTitle: 'When to leave, next 7 days', wkOk: 'Forecast clear', wkCaution: 'Take care', wkNogo: 'Don\'t go',
+    wkHint: 'Colour is forecast only (snow, alerts, wind); a taller bar means a longer drive when leaving at that hour. Under each day is the fastest departure between 5 and 21 h with its drive time (h:mm), marked on the chart by an extra top edge; drive times are from TomTom. Later days have one forecast point every 2 hours and the hours between are estimated from the two around them. Light grey is an hour already past, or one with no drive forecast yet. Tap a bar to switch to that time.',
     alongTitle: 'Weather as you pass through', time: 'Time', temp: 'Temp', snowRate: 'Snow', snowLevel: 'Snow level', gust: 'Gusts', pop: 'Precip chance',
     f: { chain: 'Chain control', closures: 'Closures / roadwork', incidents: 'CHP incidents', alerts: 'NWS alerts', snow: 'Snow on the pass', wind: 'Wind on the pass', lift: 'Lift wind-hold risk', ev: 'Cold and range', fresh: 'Data freshness', drive: 'Drive time' },
     m: {

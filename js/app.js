@@ -377,7 +377,31 @@ function viewVerdict() {
   const along = `<div class="tablewrap"><table><thead><tr><th></th><th>${t('time')}</th><th>${t('temp')}</th><th>${t('snowRate')}</th><th>${t('snowLevel')}</th><th>${t('gust')}</th></tr></thead><tbody>${ev.stops.map((s) => `<tr>
       <th>${esc(nm(s.point.name))}<small>${fElev(s.elevM)}</small></th><td>${fTime(s.ms)}</td>${s.missing ? `<td colspan="4" class="muted">${t('noData')}</td>` : `<td>${fT0(s.temp)}</td><td class="${s.snow >= L.TH.snowHeavy ? 'bad' : s.snow >= L.TH.snowLight ? 'warn' : ''}">${s.snow > 0 ? fSnow(s.snow) + '/h' : s.qpf > 0.1 ? '🌧' : '–'}</td><td>${fElev(s.snowLevel)}</td><td>${fWind(s.gust)}</td>`}</tr>`).join('')}</tbody></table></div>`;
 
-  return controls + alertRow + hero + card('basis', t('basis'), `<ul class="factors">${factors}</ul>`) + card('strip', `${t('stripTitle')} · ${fDay(day)}`, stripHtml) + card('along', t('alongTitle'), along);
+  return controls + alertRow + hero + card('basis', t('basis'), `<ul class="factors">${factors}</ul>`) + card('strip', `${t('stripTitle')} · ${fDay(day)}`, stripHtml) + card('week', t('wkTitle'), folded.has('week') ? '' : weekHtml()) + card('along', t('alongTitle'), along);
+}
+
+// Week overview: one row of 24 bars per day, for both directions. Colour is the forecast risk (same as the
+// hourly strip), bar height is the drive time for leaving at that hour.
+function weekHtml() {
+  const d = dest();
+  const now = Date.now();
+  const town = d.route.points.find((p) => p.id === d.route.townPoint);
+  const head = `<div class="wkrow wkhead" aria-hidden="true"><span></span><div class="wkbars">${Array.from({ length: 24 }, (_, h) => `<span>${h % 3 === 0 ? fHour(h) : ''}</span>`).join('')}</div></div>`;
+  const block = (dir) => {
+    const wk = L.weekOverview(S.data, d, S.ix, dir, now);
+    const span = wk.hi - wk.lo;
+    const ends = dir === 'out' ? [d.route.points[0], town] : [town, d.route.points[0]];
+    const rows = wk.rows.map((r) => `<div class="wkrow"><div class="wklab"><b>${fDay(r.day)}</b><small>${r.best ? `${fHour(r.best.h)} ${fDur(r.best.drive.sec, true)}` : ''}</small></div><div class="wkbars" role="group" aria-label="${fDay(r.day)}">${r.cells.map((c) => {
+      if (c.none) return '<span></span>';
+      const drive = c.drive && !c.past;
+      const pct = drive ? Math.round(30 + 70 * (span > 60 ? (c.drive.sec - wk.lo) / span : 0.5)) : 30;
+      const sel = S.depart !== 'now' && S.direction === dir && S.depart.day === r.day && S.depart.h === c.h;
+      const tip = `${fDay(r.day)} ${fHour(c.h)}${drive ? ' · ' + fDur(c.drive.sec, true) : ''}`;
+      return `<button data-act="wk" data-v="${dir}|${r.day}|${c.h}" class="${c.past ? 'past' : c.level}${drive ? '' : ' nd'}${sel ? ' sel' : ''}${c === r.best ? ' best' : ''}" ${c.past ? 'disabled' : ''} title="${tip}" aria-label="${tip}"><i style="height:${pct}%"></i></button>`;
+    }).join('')}</div></div>`).join('');
+    return `<h3 class="wkdir">${t(dir)} · ${esc(nm(ends[0].name))} → ${esc(nm(ends[1].name))}${wk.lo == null ? '' : `<span>${t('driveLabel')} ${fDur(wk.lo, true)} – ${fDur(wk.hi, true)}</span>`}</h3><div class="wk">${head}${rows}</div>`;
+  };
+  return block('out') + block('back') + `<div class="legend"><span><i class="lg ok"></i>${t('wkOk')}</span><span><i class="lg caution"></i>${t('wkCaution')}</span><span><i class="lg nogo"></i>${t('wkNogo')}</span></div><p class="note">${t('wkHint')}</p>`;
 }
 
 // ----- weather -----
@@ -563,6 +587,7 @@ document.addEventListener('click', (e) => {
     case 'themeSet': setPref('theme', v); t = makeT(S.lang); openSettings(); break;
     case 'direction': setPref('direction', v); break;
     case 'mode': S.depart = v === 'now' ? 'now' : { day: L.dayKey(Date.now()), h: Math.min(23, L.hourOf(Date.now()) + 1) }; break;
+    case 'wk': { const [dir, day, h] = v.split('|'); setPref('direction', dir); S.depart = { day, h: +h }; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
     case 'hour': S.depart = { day: S.depart === 'now' ? L.dayKey(Date.now()) : S.depart.day, h: +v }; break;
     case 'wx': S.wxPoint = v; break;
     case 'refresh': b.classList.add('spin'); loadData(); if (list.hasToken()) list.sync(); return;
