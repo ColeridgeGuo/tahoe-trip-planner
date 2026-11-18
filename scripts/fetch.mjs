@@ -3,10 +3,9 @@
 import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { DESTINATIONS } from '../js/config.js';
 import { CC_URL, normalizeChain, incidentDir } from '../js/normalize.js';
+import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes } from './lib.mjs';
 
 const UA = 'tahoe-trip-planner (personal trip dashboard, github pages)';
-const HOURS = 168;
-const MAX_CARRY_MS = 24 * 36e5; // older than this, a carried-over source is dropped rather than shown
 const pad = (d) => String(d).padStart(2, '0');
 
 async function get(url, { json = true, tries = 3, accept } = {}) {
@@ -29,6 +28,7 @@ async function get(url, { json = true, tries = 3, accept } = {}) {
 
 // The file published by the previous run (or left by a local run). A source that fails this time keeps
 // its last good data from here instead of going empty.
+// (How it is carried over: source() and carriedWeather() in ./lib.mjs.)
 async function previous(dest) {
   const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
   try {
@@ -38,29 +38,6 @@ async function previous(dest) {
     return JSON.parse(await readFile(new URL(`../data/${dest.id}.json`, import.meta.url), 'utf8'));
   } catch { return null; }
 }
-// Last good data for a source and when it was fetched, if the previous file has any that is recent enough.
-function carried(prev, key) {
-  const s = prev?.status?.[key];
-  const dataAt = s?.ok ? s.at : s?.dataAt;
-  return dataAt && prev[key] != null && Date.now() - dataAt < MAX_CARRY_MS ? { value: prev[key], dataAt } : null;
-}
-
-// Each source records ok/error. On failure the last good data is carried over and status.dataAt says how old
-// it is, so the UI can show its age; with nothing to carry over the UI says "couldn't confirm".
-async function source(status, key, fn, fallback, prev) {
-  try {
-    const v = await fn();
-    status[key] = { ok: true, at: Date.now() };
-    return v;
-  } catch (e) {
-    console.error(`[${key}] ${e.message}`);
-    const c = carried(prev, key);
-    status[key] = { ok: false, error: String(e.message).slice(0, 200), at: Date.now(), ...(c ? { dataAt: c.dataAt } : {}) };
-    if (c) console.error(`[${key}] carrying over data from ${Math.round((Date.now() - c.dataAt) / 6e4)} min ago`);
-    return c ? c.value : fallback;
-  }
-}
-
 // ---------- Caltrans ----------
 async function chain(feeds) {
   const all = [];
@@ -134,21 +111,6 @@ async function closures(feeds, hw) {
 // ---------- CHP ----------
 const unq = (s) => (s || '').replace(/^"|"$/g, '').trim();
 const tag = (x, t) => unq((new RegExp(`<${t}>([\\s\\S]*?)</${t}>`).exec(x) || [])[1]);
-// CHP times are Pacific wall-clock; resolve to an epoch without a tz library.
-function ptToMs(str) {
-  const m = /(\w{3}) +(\d+) +(\d{4}) +(\d+):(\d+)(AM|PM)/.exec(str);
-  if (!m) return null;
-  const mon = 'JanFebMarAprMayJunJulAugSepOctNovDec'.indexOf(m[1]) / 3;
-  let h = +m[4] % 12;
-  if (m[6] === 'PM') h += 12;
-  const guess = Date.UTC(+m[3], mon, +m[2], h, +m[5]);
-  for (const off of [8, 7]) {
-    const ms = guess + off * 36e5;
-    const hh = +new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', hourCycle: 'h23' }).format(ms);
-    if (hh === h) return ms;
-  }
-  return guess + 8 * 36e5;
-}
 async function incidents(feeds, route) {
   const xml = await get('https://media.chp.ca.gov/sa_xml/sa.xml', { json: false });
   const re = new RegExp(feeds.incidentMatch, 'i');
@@ -183,22 +145,6 @@ async function incidents(feeds, route) {
 }
 
 // ---------- NWS ----------
-function durH(iso) {
-  const m = /P(?:(\d+)D)?(?:T(?:(\d+)H)?)?/.exec(iso);
-  return (+m[1] || 0) * 24 + (+m[2] || 0);
-}
-// Expand NWS interval series to one value per hour. Accumulated fields are spread evenly over the interval.
-function hourly(series, t0, accumulate) {
-  const out = new Array(HOURS).fill(null);
-  for (const v of series?.values || []) {
-    const [start, d] = v.validTime.split('/');
-    const h = Math.max(1, durH(d));
-    const s = Math.round((Date.parse(start) - t0) / 36e5);
-    const val = v.value == null ? null : accumulate ? v.value / h : v.value;
-    for (let i = Math.max(0, s); i < Math.min(HOURS, s + h); i++) out[i] = val == null ? null : Math.round(val * 100) / 100;
-  }
-  return out;
-}
 async function nwsPoint(p, t0) {
   const meta = await get(`https://api.weather.gov/points/${p.lat},${p.lon}`, { accept: 'application/geo+json' });
   const g = (await get(meta.properties.forecastGridData, { accept: 'application/geo+json', tries: 4 })).properties;
@@ -217,12 +163,6 @@ async function nwsPoint(p, t0) {
     snow: hourly(g.snowfallAmount, t0, true),
     snowLevel: hourly(g.snowLevel, t0),
   };
-}
-// Hourly arrays start at the file's t0, so a forecast carried over from an earlier file is slid forward.
-function shiftWeather(w, shift) {
-  const out = { ...w };
-  for (const [k, v] of Object.entries(w)) if (Array.isArray(v)) out[k] = Array.from({ length: HOURS }, (_, i) => v[i + shift] ?? null);
-  return out;
 }
 async function alerts(points) {
   const seen = new Map();
@@ -249,9 +189,11 @@ async function alerts(points) {
 // The key comes from the TOMTOM_KEY secret. Errors are built without the request URL so the key can never
 // end up in the published JSON or the logs.
 const TT_KEY = process.env.TOMTOM_KEY || '';
-async function ttRoute(points, departMs) {
+// `timed` are the route points whose pass-through time is read off the returned route (stopTimes in ./lib.mjs).
+// That needs the route's polyline and progress markers, so the response is the full route, not just a summary.
+async function ttRoute(points, departMs, timed = []) {
   const locs = points.map((p) => `${p.lat},${p.lon}`).join(':');
-  const q = new URLSearchParams({ key: TT_KEY, traffic: 'true', travelMode: 'car', routeType: 'fastest', computeTravelTimeFor: 'all', routeRepresentation: 'summaryOnly' });
+  const q = new URLSearchParams({ key: TT_KEY, traffic: 'true', travelMode: 'car', routeType: 'fastest', computeTravelTimeFor: 'all', routeRepresentation: 'polyline', extendedRouteRepresentation: 'travelTime' });
   if (departMs) q.set('departAt', new Date(departMs).toISOString().replace(/\.\d+Z$/, 'Z'));
   let last = 'no response';
   for (let i = 0; i < 3; i++) {
@@ -262,7 +204,7 @@ async function ttRoute(points, departMs) {
         const m = route?.summary;
         if (!m?.travelTimeInSeconds) throw new Error('no route in response');
         const legs = (route.legs || []).map((l) => ({ km: Math.round(l.summary.lengthInMeters / 100) / 10, min: Math.round(l.summary.travelTimeInSeconds / 60) }));
-        return { sec: m.travelTimeInSeconds, noTrafficSec: m.noTrafficTravelTimeInSeconds ?? null, historicSec: m.historicTrafficTravelTimeInSeconds ?? null, km: Math.round(m.lengthInMeters / 1000), legs };
+        return { sec: m.travelTimeInSeconds, noTrafficSec: m.noTrafficTravelTimeInSeconds ?? null, historicSec: m.historicTrafficTravelTimeInSeconds ?? null, km: Math.round(m.lengthInMeters / 1000), legs, stops: stopTimes(route, points, timed) };
       }
       last = `HTTP ${r.status} ${(await r.text()).replaceAll(TT_KEY, '***').slice(0, 160)}`;
       if (r.status < 500 && r.status !== 429) break;
@@ -289,10 +231,13 @@ async function drive(dest, prevFile) {
   const pt = (id) => dest.route.points.find((p) => p.id === id);
   const way = [dest.route.points[0], ...dest.route.drivePins.map(pt), pt(dest.route.townPoint)];
   const dirs = { out: way, back: [...way].reverse() };
+  // The points the page shows conditions for, in route order (west to east). Every drive time carries
+  // `stops`: seconds from departure to each of them, in this order whichever way the trip goes.
+  const timed = dest.route.points.filter((p) => p.offsetH != null);
   const res = { at: Date.now() };
   for (const [k, pts] of Object.entries(dirs)) {
-    res[k] = await ttRoute(pts);
-    console.log(`drive ${k}: ${res[k].km} km, legs ${pts.map((p) => p.id).join(' > ')}: ${res[k].legs.map((l) => `${l.km}km/${l.min}min`).join(', ')}`);
+    res[k] = await ttRoute(pts, null, timed);
+    console.log(`drive ${k}: ${res[k].km} km, legs ${pts.map((p) => p.id).join(' > ')}: ${res[k].legs.map((l) => `${l.km}km/${l.min}min`).join(', ')}; reaches ${timed.map((p, i) => `${p.id} ${res[k].stops[i] == null ? '?' : Math.round(res[k].stops[i] / 60)}min`).join(', ')}`);
   }
   const prev = prevFile?.drive;
   const h0 = Math.ceil(Date.now() / 36e5) * 36e5;
@@ -300,13 +245,15 @@ async function drive(dest, prevFile) {
   const forecast = async (into, offsets) => {
     for (const i of offsets) {
       for (const [k, pts] of Object.entries(dirs)) {
-        const r = await ttRoute(pts, h0 + i * 36e5);
-        into[k].push({ ms: h0 + i * 36e5, sec: r.sec, noTrafficSec: r.noTrafficSec });
+        const r = await ttRoute(pts, h0 + i * 36e5, timed);
+        into[k].push({ ms: h0 + i * 36e5, sec: r.sec, noTrafficSec: r.noTrafficSec, stops: r.stops });
       }
     }
   };
   const errors = [];
-  if (prev?.hourly && Date.now() - prev.hourlyAt < HOURLY_EVERY_MS) {
+  // A forecast saved before per-point times existed is refreshed now rather than when it falls due.
+  const timedIn = (x) => !!x?.out?.[0]?.stops;
+  if (timedIn(prev?.hourly) && Date.now() - prev.hourlyAt < HOURLY_EVERY_MS) {
     res.hourlyAt = prev.hourlyAt;
     res.hourly = prev.hourly;
   } else {
@@ -325,7 +272,7 @@ async function drive(dest, prevFile) {
     }
   }
   // Days 2-7 on a coarser grid. The page joins this onto the end of the hourly series.
-  if (prev?.long && Date.now() - prev.longAt < LONG_EVERY_MS) {
+  if (timedIn(prev?.long) && Date.now() - prev.longAt < LONG_EVERY_MS) {
     res.longAt = prev.longAt;
     res.long = prev.long;
   } else if (errors.length) {
@@ -378,10 +325,9 @@ for (const dest of DESTINATIONS) {
     } catch (e) {
       console.error(`[weather:${p.id}] ${e.message}`);
       // Keep this point's last good forecast, re-aligned to the new t0.
-      const old = prev?.weather?.[p.id];
-      const oldAt = old?.at ?? (prev?.status?.weather?.ok ? prev.generatedAt : null);
-      if (old && oldAt && Date.now() - oldAt < MAX_CARRY_MS) {
-        weather[p.id] = { ...shiftWeather(old, Math.round((t0 - prev.t0) / 36e5)), at: oldAt, carried: true };
+      const old = carriedWeather(prev, p.id, t0);
+      if (old) {
+        weather[p.id] = old;
         kept.push(p.id);
       } else failed.push(p.id);
     }

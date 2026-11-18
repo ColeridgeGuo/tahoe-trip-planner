@@ -8,6 +8,7 @@ A go / no-go dashboard for driving from the Bay Area to a Tahoe ski resort: chai
 - `.github/workflows/deploy.yml` runs that script and publishes the site to GitHub Pages. Nothing is committed back to the repo.
 - The workflow has no schedule of its own. An external cron-job triggers it every 15 minutes through `workflow_dispatch`, because GitHub's built-in scheduler runs late and unevenly.
 - Drive times come from TomTom (`TOMTOM_KEY` secret): live on every run, hourly for the next 24 h (refreshed hourly), and every 2 h out to 7 days (refreshed every 12 h). That is about 1,640 of the 2,500 free requests a day.
+- Each drive time also says when the drive reaches every point along the route (Sacramento, Placerville, Kyburz, Echo Summit), read off the route TomTom returned, so the weather shown for a point is the weather at the moment you are there. This costs no extra requests. A point the chosen route does not pass (TomTom sometimes goes via Stockton instead of Sacramento) is placed between its neighbours.
 - If a source fails on a run, its last good data is carried over from the previously published file (up to 24 h) and the page shows how old it is.
 - The page additionally reads chain control straight from Caltrans on every load, so that part is always live.
 - Change alerts: pick a departure time on the Verdict tab and turn on the alert. The page saves that departure and the device's Web Push subscription in the same private Gist as the checklist; after every refresh `scripts/notify.mjs` re-evaluates it and pushes a notification when the verdict or the chain-control level changed. What was last sent is published as `data/alerts.json` (a hash and two levels, no trip details).
@@ -30,6 +31,14 @@ node scripts/fetch.mjs
 ```bash
 python3 -m http.server 8000
 ```
+
+## Tests
+
+```bash
+node --test "test/*.test.mjs"
+```
+
+No dependencies (Node 22+). They cover the verdict, chain control per vehicle, closure and incident direction, what happens when a source fails, pass-through times and change alerts, and run on every pull request (`.github/workflows/test.yml`).
 
 ## Add a destination
 
