@@ -40,19 +40,26 @@ async function previous(dest) {
   } catch { return null; }
 }
 // The hourly record of real chain control published by the previous run (see addHistory in ./lib.mjs).
+// Null only when there is none yet (404) or it cannot be parsed. If the site cannot be reached at all, this
+// throws and the run stops before deploying: publishing now would replace the whole record with one row, and
+// it cannot be rebuilt. The next run, 15 minutes later, tries again; the site keeps its current data meanwhile.
 async function previousHistory() {
   const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
   if (owner) {
-    for (let i = 0; i < 3; i++) {
+    let last = '';
+    for (let i = 0; i < 5; i++) {
       try {
         const r = await fetch(`https://${owner.toLowerCase()}.github.io/${repo}/data/history.json?ts=${Date.now()}`, { signal: AbortSignal.timeout(20000) });
-        if (r.ok) return await r.json();
         if (r.status === 404) return null;
-      } catch { /* retry */ }
-      await new Promise((s) => setTimeout(s, 2000 * (i + 1)));
+        if (r.ok) {
+          const text = await r.text();
+          try { return JSON.parse(text); } catch { console.error('[history] published record is not valid JSON, starting a new one'); return null; }
+        }
+        last = `HTTP ${r.status}`;
+      } catch (e) { last = String(e.message); }
+      await new Promise((s) => setTimeout(s, 3000 * (i + 1)));
     }
-    console.error('[history] previous record unreachable, starting a new one');
-    return null;
+    throw new Error(`[history] could not read the published record (${last}); not deploying, so it is not overwritten`);
   }
   try {
     return JSON.parse(await readFile(new URL('../data/history.json', import.meta.url), 'utf8'));
