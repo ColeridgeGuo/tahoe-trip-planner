@@ -79,12 +79,50 @@ export function addHistory(hist, row, points) {
 }
 
 // ---------- TomTom quota ----------
-// Requests sent so far today, carried from run to run, and yesterday's total once the day turns. TomTom counts
-// its free daily quota by UTC day.
+// The free allowance for the Routing API is 20,000 requests a month (about 645 a day). Only what actually
+// moves is fetched often. With a run every 15 minutes, a day costs:
+//   live     both ways, on every other run                                             96
+//   hourly   the next 24 h, one point an hour. The first NEAR_H hours follow current
+//            traffic and are fetched again every hour; later hours come from TomTom's
+//            historic profiles and are fetched again only when MID_EVERY_MS old. An
+//            hour is fetched 5 times before it passes, both ways                      240
+//   long     hours 24-192, every 2 h, once a day: 85 x 2                              170
+//                                                                                     506
+// About 15,700 in a 31-day month, which leaves a fifth of the allowance for retries and extra runs.
+export const MONTHLY_QUOTA = 20000;
+export const LIVE_EVERY_MS = 25 * 6e4;
+export const NEAR_H = 3;
+export const MID_EVERY_MS = 12 * 36e5 - 5 * 6e4;
+export const HOURLY_EVERY_MS = 55 * 6e4;
+export const LONG_EVERY_MS = 24 * 36e5 - 5 * 6e4;
+export const LONG_STEP_H = 2;
+export const LONG_TO_H = 192; // a day past the 7 the page shows, so a day-old forecast still covers them
+// The live reading of the last run, if a new one is not due yet.
+export function keptLive(prev, nowMs) {
+  return prev?.out?.sec && prev?.back?.sec && nowMs - prev.at < LIVE_EVERY_MS ? { at: prev.at, out: prev.out, back: prev.back } : null;
+}
+// For an hourly refresh starting at hour `h0`: the points of the last forecast that can be kept, by time.
+// Every hour not in the result has to be fetched. `prevAt` dates points saved before each carried its own time.
+export function keptHours(prev, prevAt, h0, nowMs) {
+  const kept = new Map();
+  const back = new Map((prev?.back || []).map((x) => [x.ms, x]));
+  for (const out of prev?.out || []) {
+    const b = back.get(out.ms);
+    if (!b || !out.stops || !b.stops || out.ms < h0 + NEAR_H * 36e5) continue;
+    if (nowMs - Math.min(out.at ?? prevAt ?? 0, b.at ?? prevAt ?? 0) >= MID_EVERY_MS) continue;
+    kept.set(out.ms, { out, back: b });
+  }
+  return kept;
+}
+// Requests sent so far today and this month, carried from run to run, and yesterday's total once the day
+// turns. Days and months are UTC. The month's count starts when this was first deployed, so the first
+// month reads low.
 export function quotaUsed(prev, calls, nowMs = Date.now()) {
   const day = new Date(nowMs).toISOString().slice(0, 10);
-  if (prev?.day === day) return { ...prev, n: prev.n + calls };
-  return { day, n: calls, ...(prev?.day ? { prev: { day: prev.day, n: prev.n } } : {}) };
+  const month = day.slice(0, 7);
+  const monthN = (prev?.month === month ? prev.monthN : 0) + calls;
+  if (prev?.day === day) return { ...prev, n: prev.n + calls, month, monthN };
+  return { day, n: calls, month, monthN, ...(prev?.day ? { prev: { day: prev.day, n: prev.n } } : {}) };
 }
 
 // ---------- Caltrans ----------
