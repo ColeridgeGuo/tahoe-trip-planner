@@ -250,3 +250,11 @@ footer{max-width:60rem;margin:auto;padding:0.25rem 1.25rem 1rem;font-size:0.7188
 .foldall{display:flex;justify-content:flex-end;margin:-0.25rem 0}
 .foldall .ghost{margin-top:0;display:inline-flex;align-items:center;gap:0.375rem;padding:0.3125rem 0.625rem;color:var(--mute);cursor:pointer}
 .foldall [aria-expanded=false] .chev{transform:rotate(-45deg);margin-top:0}
+/* icon left of each card title */
+.cic{flex:none;display:inline-grid;place-items:center;color:var(--mute)}
+.cic svg{width:1.0625rem;height:1.0625rem;display:block}
+/* app icon left of the page title */
+.brand .logo{width:1.375em;height:1.375em;vertical-align:-0.3em;margin-right:0.4em;border-radius:0.3em}
+/* the destination and route always sit on their own line under the page title */
+#title{flex-direction:column;align-items:flex-start;flex-wrap:nowrap}
+@media (min-width:900px) and (max-width:1149px){#title .via{display:inline}}
