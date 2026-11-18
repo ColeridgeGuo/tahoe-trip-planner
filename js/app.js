@@ -3,6 +3,7 @@ import { CC_URL, normalizeChain } from './normalize.js';
 import { makeT } from './i18n.js';
 import { list, gist } from './sync.js';
 import { alerts } from './alerts.js';
+import { FOOD } from './food.js';
 import * as L from './logic.js';
 
 const TZ = 'America/Los_Angeles';
@@ -31,7 +32,7 @@ const S = {
   chainLiveAt: null,
   camsLoaded: new Set(),
   alertErr: false, // the last attempt to save an alert failed
-  mapShow: { traffic: false, inc: true, clos: false, cams: false, ...store.get('mapShow', {}) },
+  mapShow: { traffic: false, inc: true, clos: false, cams: false, food: true, ...store.get('mapShow', {}) },
 };
 let t = makeT(S.lang);
 const dest = () => DESTINATIONS.find((d) => d.id === S.destId) || DESTINATIONS[0];
@@ -282,8 +283,25 @@ function drawMap() {
   }
   if (S.mapShow.inc) for (const x of L.incidentsFor(S.data, dir)) mark(x.lat, x.lon, `mk-inc ${/collision|closure|sigalert|fatal|spin/i.test(x.type) ? 'caution' : ''}`, '!', pop(x.type, [esc(x.loc), x.time ? `<span class="muted">${fTime(x.time)} · ${esc(x.area)}</span>` : '', ...x.details.map(esc)]), 300);
   if (S.mapShow.clos) for (const k of S.data.closures) if (k.lat && !L.isRamp(k) && L.inDir(k.dir, dir)) mark(k.lat, k.lon, `mk-cl ${L.isFull(k) ? 'nogo' : ''}`, '', pop(`${k.from} → ${k.to}`, [esc(`${k.type} · ${k.work}`), `<span class="muted">${fWhen(k.start)} ${t('until')} ${k.end ? fWhen(k.end) : t('indefinite')}</span>`]), 100);
+  if (S.mapShow.food) for (const x of foodNow()) mark(x.place.lat, x.place.lon, 'mk-food', '', pop(x.place.name, [esc([x.place.town, x.place.cuisine && nm(x.place.cuisine)].filter(Boolean).join(' · ')), `${t('food.arrive', { v: fTime(x.ms) })} · ${foodOpenText(x.open)}`, x.place.note ? esc(nm(x.place.note)) : '', `<a href="${esc(foodUrl(x.place))}" target="_blank" rel="noopener">Google Maps</a>`]), 200);
   if (S.mapShow.cams) S.data.cams.forEach((c) => mark(c.lat, c.lon, 'mk-cam', '', `<b>${esc(c.name)}</b><img class="popcam" alt="" src="${esc(c.img)}?t=${Math.floor(Date.now() / 3e5)}">`, 50));
 }
+// Places to eat on this route for the departure currently picked, in driving order.
+function foodNow() {
+  const d = dest();
+  const dm = departMs();
+  const dr = L.driveTime(S.data, d, dm, S.direction);
+  return L.foodStops(S.data, d, FOOD, dm, S.direction, dr.hours, dr.stops);
+}
+const foodUrl = (p) => p.url || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${p.name} ${p.town || ''}`.trim())}`;
+function foodOpenText(o) {
+  if (o.state === 'unknown') return t('food.unknown');
+  if (o.state === 'open') return t('food.open');
+  if (o.state === 'closing') return t('food.closing', { n: Math.round(o.closeMin / 5) * 5 });
+  return o.openMin != null && o.openMin <= 180 ? t('food.opensIn', { v: fGap(o.openMin) }) : t('food.closed');
+}
+const fGap = (min) => (min < 60 ? (S.lang === 'zh' ? `${min} 分钟` : `${min} min`) : fDur(min * 60));
+const foodCls = (o) => (o.state === 'open' ? 'ok' : o.state === 'closing' ? 'caution' : 'na');
 // Background refreshes must not reload live streams or steal focus from the list input.
 function softRender() {
   if (S.tab === 'resort' && S.camsLoaded.size) return renderChrome();
@@ -452,7 +470,7 @@ function viewRoads() {
   const dirLabel = t(dir === 'East' ? 'east' : 'west');
   const dirSeg = `<div class="controls">${seg('direction', S.direction, [['out', `${t('out')} · ${t(r.outboundDir === 'East' ? 'east' : 'west')}`], ['back', `${t('back')} · ${t(r.returnDir === 'East' ? 'east' : 'west')}`]])}</div>`;
   const lay = (k, label) => `<button data-act="mapLayer" data-v="${k}" class="${S.mapShow[k] ? 'on' : ''}" aria-pressed="${S.mapShow[k]}">${label}</button>`;
-  const mapHtml = `<div class="chips">${TOMTOM_WEB_KEY ? lay('traffic', t('mapTraffic')) : ''}${lay('inc', t('mapInc'))}${lay('clos', t('mapClos'))}${lay('cams', t('mapCams'))}</div><div id="map"></div>
+  const mapHtml = `<div class="chips">${TOMTOM_WEB_KEY ? lay('traffic', t('mapTraffic')) : ''}${lay('inc', t('mapInc'))}${lay('clos', t('mapClos'))}${lay('cams', t('mapCams'))}${FOOD.length ? lay('food', t('mapFood')) : ''}</div><div id="map"></div>
     <div class="legend"><span><i class="lg ok"></i>${t('mapNone')}</span><span><i class="lg caution"></i>R1 / R2</span><span><i class="lg nogo"></i>${t('mapClosed')}</span></div>${S.mapShow.traffic && TOMTOM_WEB_KEY ? `<p class="note">${t('mapTrafficNote')}</p>` : ''}<p class="note">${t('mapNote')}</p>`;
   const chain = `<ul class="rows">${c.rows.map((x) => `<li>${rBadge(x.level, x.status)}<div><b>${esc(x.name.replace(/\s*\((unselect|holding)[^)]*\)/i, ''))}</b><small>${x.elevFt ? fElev(x.elevFt / 3.28084) + ' · ' : ''}${esc(x.at)}</small>${x.level !== 0 ? `<p>${esc(x.desc)}</p>` : ''}</div></li>`).join('') || `<li class="muted">${t('noData')}</li>`}</ul>`;
 
@@ -481,9 +499,26 @@ function viewRoads() {
   const bust = Math.floor(Date.now() / 3e5);
   const cams = `<p class="note">${t('camHint')}</p><div class="cams">${S.data.cams.map((x, i) => `<button class="cam" data-act="cam" data-v="${i}"><img loading="lazy" alt="${esc(x.name)}" src="${esc(x.img)}?t=${bust}"><span>${esc(x.name)}<small>${x.elevFt ? fElev(x.elevFt / 3.28084) : ''}</small></span></button>`).join('')}</div>`;
 
+  // Places to eat, in the order this direction passes them, timed for the departure picked on the first tab.
+  const stops = foodNow();
+  // With a long list: a heading per town in driving order, and a switch to hide what will be shut on arrival.
+  const many = stops.length > 6;
+  const shown = many && S.foodOpenOnly ? stops.filter((x) => ['open', 'closing'].includes(x.open.state)) : stops;
+  const legs = [];
+  for (const x of shown) {
+    const k = x.place.town;
+    if (legs.at(-1)?.k !== k) legs.push({ k, title: k, rows: [] });
+    legs.at(-1).rows.push(x);
+  }
+  const foodRows = (rows) => `<ul class="rows">${rows.map((x) => `<li><span class="badge ${foodCls(x.open)}">${fTime(x.ms)}</span><div><b><a href="${esc(foodUrl(x.place))}" target="_blank" rel="noopener">${esc(x.place.name)}</a></b>
+    <small>${esc([x.place.town, x.place.cuisine && nm(x.place.cuisine)].filter(Boolean).join(' · '))}</small><small>${foodOpenText(x.open)}</small>${x.place.note ? `<p>${esc(nm(x.place.note))}</p>` : ''}</div></li>`).join('')}</ul>`;
+  const food = (many ? `<div class="chips"><button data-act="foodOpen" class="${S.foodOpenOnly ? 'on' : ''}" aria-pressed="${!!S.foodOpenOnly}">${t('food.openOnly')}</button></div>` : '') +
+    (shown.length ? (many ? legs.map((g) => `<h3 class="leg">${esc(g.title)} · ${g.rows.length}</h3>${foodRows(g.rows)}`).join('') : foodRows(shown)) : `<p class="muted">${t('food.noneOpen')}</p>`) + `<p class="note">${t('food.note')}</p>`;
+  const foodCard = stops.length ? card('food', t('food.title'), food, `<span class="tag">${S.depart === 'now' ? t('food.fromNow') : t('food.from', { when: fWhen(departMs()) })}</span>`) : '';
+
   // A failed source shows how old its carried-over data is, or "failed" when there is none.
   const st = (k) => { const s = S.data.status[k]; return s?.ok === false ? `<span class="tag bad">${s.dataAt ? t('srcStaleTag', { v: fAgo(s.dataAt) }) : t('loadFail')}</span>` : ''; };
-  return dirSeg + card('map', `${r.label} ${t('mapTitle')}`, mapHtml) + card('chain', `${r.label} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? liveTag(S.chainLiveAt) : fAgo(S.data.generatedAt)}</span>${st('chain')}`) +
+  return dirSeg + card('map', `${r.label} ${t('mapTitle')}`, mapHtml) + foodCard + card('chain', `${r.label} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? liveTag(S.chainLiveAt) : fAgo(S.data.generatedAt)}</span>${st('chain')}`) +
     card('alts', t('altTitle'), alts) + card('inc', t('incTitle'), inc, st('incidents')) + card('clos', t('closTitle'), clos, st('closures')) + card('cams', t('camTitle'), cams, st('cams')) + `<p class="note pad0">${t('srcTextNote')} · ${t('chainDir', { dir: dirLabel })}</p>`;
 }
 
@@ -596,6 +631,7 @@ document.addEventListener('click', (e) => {
     case 'settings': t = makeT(S.lang); return openSettings();
     case 'cam': return openCam(+v);
     case 'rcam': S.camsLoaded.add(+v); break;
+    case 'foodOpen': S.foodOpenOnly = !S.foodOpenOnly; break;
     case 'mapLayer': S.mapShow[v] = !S.mapShow[v]; store.set('mapShow', S.mapShow); break;
     case 'fold': {
       const sec = b.closest('.card');
