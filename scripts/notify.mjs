@@ -22,10 +22,12 @@ const NEEDED = ['chain', 'closures', 'incidents', 'alerts', 'weather']; // sourc
 const b64u = (buf) => Buffer.from(buf).toString('base64url');
 
 // ---------- what to say ----------
-// The verdict and chain level for one planned departure, or null when a source failed on this run: a verdict
-// built on a gap would flip to "caution" and back, and that is not a change in the road.
+// The verdict and chain level for one planned departure. `partial` lists the sources that failed on this run:
+// a verdict built on a gap would flip to "caution" and back, and that is not a change in the road, so
+// decide() holds the verdict (and the chain level, if that feed is the one that failed) at what was last
+// said until every source is back, while still sending what does not depend on the gap.
 export function planState(data, dest, plan, vehicle, nowMs = Date.now()) {
-  if (NEEDED.some((k) => data.status?.[k]?.ok === false)) return null;
+  const partial = NEEDED.filter((k) => data.status?.[k]?.ok === false);
   const r = dest.route;
   const ev = evaluate(data, dest, { departMs: plan.departMs, direction: plan.direction, vehicle, nowMs });
   const worst = Math.max(...ev.factors.map((f) => LV[f.level]));
@@ -33,8 +35,10 @@ export function planState(data, dest, plan, vehicle, nowMs = Date.now()) {
     level: ev.level,
     drive: ev.drive.src !== 'fixed', // false: no TomTom time for this departure, the fixed estimate was used
     ...(ev.drive.src !== 'fixed' ? { sec: Math.round(ev.drive.sec) } : {}), // the TomTom drive time, when there is one
+    ...(ev.drive.src !== 'fixed' && ev.drive.snowMin ? { snowMin: ev.drive.snowMin } : {}), // minutes the snow is expected to add, [from, to]
     chain: chainFor(data, r.highway, ev.dir).max,
     why: worst > 0 ? ev.factors.filter((f) => LV[f.level] === worst).map((f) => f.key) : [],
+    ...(partial.length ? { partial } : {}),
   };
 }
 
@@ -53,6 +57,13 @@ const fDur = (sec) => `${Math.floor(Math.round(sec / 60) / 60)}:${String(Math.ro
 // that summary has gone out or its moment had already passed when the alert was set.
 export function decide(told, cur, plan, dest, lang, nowMs = Date.now()) {
   const t = makeT(lang);
+  // A source failed on this run. Nothing is announced for a departure not reported on yet; otherwise the
+  // verdict stays as last said, and so does the chain level when it is the chain feed that failed. A chain
+  // change read from a working feed, the drive time and the summaries still go out.
+  const gap = cur.partial?.length ? cur.partial : null;
+  if (gap && !told) return null;
+  if (gap) cur = { ...cur, level: told.level, why: [], ...(gap.includes('chain') ? { chain: told.chain } : {}) };
+  const gapNote = gap ? '\n' + t('al.nPartial', { list: gap.map((k) => t('al.src.' + k)).join(lang === 'zh' ? '、' : ', ') }) : '';
   const r = dest.route;
   const dir = plan.direction === 'out' ? r.outboundDir : r.returnDir;
   const chainName = (n) => (n >= 4 ? t('al.chainClosed') : n > 0 ? `R${n}` : n === 0 ? t('al.chainNone') : t('al.chainNA'));
@@ -63,7 +74,7 @@ export function decide(told, cur, plan, dest, lang, nowMs = Date.now()) {
   const why = cur.why.length ? '\n' + t('al.nWhy', { list: cur.why.map((k) => t('f.' + k)).join(lang === 'zh' ? '、' : ', ') }) : '';
   const due = summariesDue(plan, nowMs);
   const flags = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v));
-  const driveTxt = cur.sec != null ? t('al.nDriveNow', { v: fDur(cur.sec) }) : '';
+  const driveTxt = cur.sec != null ? t('al.nDriveNow', { v: fDur(cur.sec) }) + (cur.snowMin ? t('al.nDriveSnow', { a: cur.snowMin[0], b: cur.snowMin[1] }) : '') : '';
   if (!told) {
     // A summary whose moment has already passed is not sent later: the message below says the same.
     const now = { level: cur.level, chain: cur.chain, drive: cur.drive, ...(cur.sec != null ? { sec: cur.sec } : {}), ...flags(due) };
@@ -85,7 +96,7 @@ export function decide(told, cur, plan, dest, lang, nowMs = Date.now()) {
   if (driveNow) lines.push(t(cur.sec > told.sec ? 'al.nDriveUp' : 'al.nDriveDown', { a: fDur(told.sec), b: fDur(cur.sec), d: Math.round(Math.abs(cur.sec - told.sec) / 60) }));
   // Summaries: sent once each, even when nothing changed, so that silence is not mistaken for a dead alert.
   const sum = due.pre && !told.pre ? 'pre' : due.eve && !told.eve ? 'eve' : null;
-  if (sum) lines.unshift(t(sum === 'pre' ? 'al.nSumPre' : 'al.nSumEve', { level: t(level), hw, chain: chainName(cur.chain) }) + (driveTxt && !driveNow ? '\n' + driveTxt : ''));
+  if (sum) lines.unshift(t(sum === 'pre' ? 'al.nSumPre' : 'al.nSumEve', { level: t(level), hw, chain: chainName(cur.chain) }) + (driveTxt && !driveNow ? '\n' + driveTxt : '') + gapNote);
   // The drive time last reported: the first one seen is the baseline, and it then moves only when a
   // notification stated the current one.
   const sec = cur.sec != null && (told.sec == null || driveNow || sum) ? cur.sec : told.sec;
@@ -227,7 +238,7 @@ async function main() {
     if (state[key]) next[key] = state[key];
     const data = JSON.parse(await readFile(new URL(`../data/${dest.id}.json`, import.meta.url), 'utf8'));
     const cur = planState(data, dest, plan, { ...DEFAULT_VEHICLE, ...cfg.vehicle }, now);
-    if (!cur) { console.log(`alerts: ${plan.direction} skipped, a source failed on this run`); continue; }
+    if (cur.partial) console.log(`alerts: ${plan.direction}: ${cur.partial.join(', ')} failed on this run, holding the verdict at what was last sent`);
     const msg = decide(state[key], cur, plan, dest, lang, now);
     console.log(`alerts: ${plan.direction} in ${Math.round((plan.departMs - now) / 36e5)} h: ${cur.level}, chain ${cur.chain}${cur.sec != null ? `, drive ${Math.round(cur.sec / 60)} min` : ''}${msg ? (msg.silent ? '' : state[key] ? ' -> notifying' : ' -> first check, notifying') : ', nothing to send'}`);
     if (!msg) continue;

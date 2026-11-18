@@ -347,6 +347,7 @@ function factorText(f) {
   const hw = d.route.label;
   const v = f.v;
   const where = (rows) => [...new Set(rows.map((r) => r.name))].slice(0, 2).join(', ');
+  const need = f.need ? ' ' + t('m.' + f.need) : '';
   switch (f.key) {
     case 'chain': {
       if (!v) return t('m.' + f.msg);
@@ -360,8 +361,8 @@ function factorText(f) {
       if (!v) return t('m.' + f.msg);
       return t('m.' + f.msg, { hw, n: v.all.length, s: v.serious.length }) + (f.live ? '' : ` <span class="muted">(${t('refOnly')})</span>`);
     case 'snow':
-      if (f.msg === 'snowPack') return t('m.snowPack', { h: v.pack.hours, total: fSnow(v.pack.mm), temp: fT(v.pack.temp), where: esc(nm(v.pack.stop.point.name)) });
-      return t('m.' + f.msg, v?.stop ? { rate: fSnow(v.rate), where: esc(nm(v.stop.point.name)) } : {});
+      if (f.msg === 'snowPack') return t('m.snowPack', { h: v.pack.hours, total: fSnow(v.pack.mm), temp: fT(v.pack.temp), where: esc(nm(v.pack.stop.point.name)) }) + need;
+      return t('m.' + f.msg, v?.stop ? { rate: fSnow(v.rate), where: esc(nm(v.stop.point.name)) } : {}) + need;
     case 'alerts':
       if (!Array.isArray(v) || !v.length) return t('m.' + f.msg);
       return v.map((a) => `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(alertName(a.event))}</a> <span class="muted">${fWhen(a.onset)} – ${fWhen(a.ends)}${L.alertLevel(a.event) === 'ok' ? ' · ' + t('m.alertInfo') : ''}</span>`).join('<br>');
@@ -371,7 +372,7 @@ function factorText(f) {
       if (!v) return t('m.' + f.msg, { v: fDur(d.route.driveHours * 3600) });
       const dm = v.deltaMin;
       const cmp = dm == null ? '' : Math.abs(dm) < 5 ? t(v.vs === 'usual' ? 'm.driveSame' : 'm.driveFree') : t(`m.drive${dm > 0 ? 'More' : 'Less'}${v.vs === 'usual' ? 'Usual' : 'Free'}`, { d: Math.abs(dm) });
-      return t('m.' + f.msg, { v: fDur(v.sec) }) + cmp;
+      return t('m.' + f.msg, { v: fDur(v.sec) }) + cmp + (v.snowMin ? ' ' + t('m.driveSnow', { a: v.snowMin[0], b: v.snowMin[1] }) : '');
     }
     case 'ev': return t('m.' + f.msg, { v: fT(v) });
     case 'fresh': return t('m.' + f.msg, { v: fAgo(Date.now() - v * 6e4).replace(/前$| ago$/, '') });
@@ -384,7 +385,7 @@ function viewVerdict() {
   const dm = departMs();
   const ev = L.evaluate(S.data, d, { departMs: dm, direction: S.direction, vehicle: S.vehicle });
   const day = L.dayKey(dm);
-  const strip = L.departureStrip(S.data, d, S.ix, day, S.direction);
+  const strip = L.departureStrip(S.data, d, S.ix, day, S.direction, Date.now(), S.vehicle);
   const win = L.bestWindow(strip);
   const pick = S.depart !== 'now';
   const ends = S.direction === 'out' ? [d.route.points[0], d.route.points.find((p) => p.id === d.route.townPoint)] : [d.route.points.find((p) => p.id === d.route.townPoint), d.route.points[0]];
@@ -408,7 +409,7 @@ function viewVerdict() {
     <div class="route">${esc(nm(ends[0].name))} → ${esc(nm(ends[1].name))}</div>
     <h1>${t(ev.level)}</h1>
     <p>${t(ev.level + 'Sub')}</p>
-    <div class="times"><span>${t('departAt')} <b>${fWhen(dm)}</b></span><span>${t('arriveAt')} <b>${fTime(ev.endMs)}</b></span>${ev.drive.src === 'fixed' ? '' : `<span>${t('driveLabel')} <b>${fDur(ev.drive.sec)}</b></span>`}</div>
+    <div class="times"><span>${t('departAt')} <b>${fWhen(dm)}</b></span><span>${t('arriveAt')} <b>${fTime(ev.endMs)}</b></span>${ev.drive.src === 'fixed' ? '' : `<span>${t('driveLabel')} <b>${fDur(ev.drive.sec)}</b></span>`}${ev.drive.snowMin ? `<span>${t('snowLater', { a: ev.drive.snowMin[0], b: ev.drive.snowMin[1] })}</span>` : ''}</div>
   </section>`;
 
   const order = { nogo: 0, caution: 1, ok: 2, info: 3 };
@@ -439,7 +440,7 @@ function weekHtml() {
   const town = d.route.points.find((p) => p.id === d.route.townPoint);
   const head = `<div class="wkrow wkhead" aria-hidden="true"><span></span><div class="wkbars">${Array.from({ length: 24 }, (_, h) => `<span>${h % 3 === 0 ? fHour(h) : ''}</span>`).join('')}</div></div>`;
   const block = (dir) => {
-    const wk = L.weekOverview(S.data, d, S.ix, dir, now);
+    const wk = L.weekOverview(S.data, d, S.ix, dir, now, 5, 21, S.vehicle);
     const span = wk.hi - wk.lo;
     const ends = dir === 'out' ? [d.route.points[0], town] : [town, d.route.points[0]];
     const rows = wk.rows.map((r) => `<div class="wkrow"><div class="wklab"><b>${fDay(r.day)}</b><small>${r.best ? `${fHour(r.best.h)} ${fDur(r.best.drive.sec, true)}` : ''}</small></div><div class="wkbars" role="group" aria-label="${fDay(r.day)}">${r.cells.map((c) => {

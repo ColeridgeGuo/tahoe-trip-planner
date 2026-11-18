@@ -362,6 +362,57 @@ describe('weather on the mountain section', () => {
   });
 });
 
+describe('what forecast snow means for the car and the drive time', () => {
+  const car = (o = {}) => ({ drive: '2wd', snowTires: false, chains: false, ev: false, ...o });
+  const passAt = NOW + (route.points.find((p) => p.id === 'pass').offsetH) * H;
+  const snowing = (rate) => { const d = makeData(); d.weather.pass.snow[hourIdx(passAt)] = rate; return d; };
+  const snowF = (data, vehicle, over = {}) => factor(ev(data, { vehicle, departMs: LATER, ...over }), 'snow');
+  const later = (rate) => { const d = makeData(); d.weather.pass.snow[hourIdx(LATER + (passAt - NOW))] = rate; return d; };
+  test('heavy snow: a car that needs chains and has none is a no-go, days ahead too', () => {
+    const f = snowF(later(L.TH.snowHeavy), car());
+    assert.equal(f.level, 'nogo');
+    assert.equal(f.need, 'fcNoChains');
+    assert.equal(snowF(later(L.TH.snowHeavy), car({ drive: 'awd', snowTires: true })).need, 'fcCarry');
+    assert.equal(snowF(later(L.TH.snowHeavy), car({ drive: 'awd', snowTires: true })).level, 'nogo');
+  });
+  test('heavy snow: with chains it stays a caution, and says when they have to go on', () => {
+    const fit = snowF(later(L.TH.snowHeavy), car({ chains: true }));
+    assert.equal(fit.level, 'caution');
+    assert.equal(fit.need, 'fcInstall');
+    const awd = snowF(later(L.TH.snowHeavy), AWD);
+    assert.equal(awd.level, 'caution');
+    assert.equal(awd.need, undefined);
+  });
+  test('light snow: a reminder to bring chains, not a no-go', () => {
+    const f = snowF(later(L.TH.snowLight), car());
+    assert.equal(f.level, 'caution');
+    assert.equal(f.need, 'fcLight');
+    assert.equal(snowF(later(L.TH.snowLight), car({ snowTires: true })).need, undefined);
+  });
+  test('no snow: the vehicle changes nothing', () => {
+    assert.equal(ev(makeData(), { vehicle: car(), departMs: LATER }).level, 'go');
+  });
+  test('the hour-by-hour strip follows the vehicle when it is given one', () => {
+    const data = snowing(L.TH.snowHeavy);
+    const ix = L.index(data);
+    const day = L.dayKey(NOW);
+    const at = (v) => L.departureStrip(data, dest, ix, day, 'out', NOW, v).find((s) => s.h === L.hourOf(NOW)).level;
+    assert.equal(at(null), 'caution');
+    assert.equal(at(AWD), 'caution');
+    assert.equal(at(car()), 'nogo');
+  });
+  test('snow adds an estimated range to the TomTom drive time', () => {
+    const drive = (data, over = {}) => ev(data, over).drive;
+    assert.equal(drive(makeData({ drive: liveDrive() })).snowMin, undefined);
+    assert.deepEqual(drive({ ...snowing(L.TH.snowLight), drive: liveDrive() }).snowMin, L.TH.snowDelay.light);
+    assert.deepEqual(drive({ ...snowing(L.TH.snowHeavy), drive: liveDrive() }).snowMin, L.TH.snowDelay.heavy);
+    // Leaving now with chain control already up: the live time has the slow traffic in it.
+    assert.equal(drive({ ...snowing(L.TH.snowHeavy), drive: liveDrive(), chain: chains(chainRow(2)) }).snowMin, undefined);
+    // The verdict itself is not changed by the estimate.
+    assert.equal(factor(ev({ ...snowing(L.TH.snowLight), drive: liveDrive() }), 'drive').level, 'ok');
+  });
+});
+
 describe('when a data source failed', () => {
   for (const key of ['chain', 'closures', 'incidents', 'alerts']) {
     test(`${key} failed with nothing to fall back on: caution, "could not confirm"`, () => {
