@@ -219,7 +219,8 @@ const roadOf = (route, rec) => { const rs = roadsOf(route); return rs.find((x) =
 export function onTrip(route, direction) {
   return (rec) => {
     const road = roadOf(route, rec);
-    if (road.lonMax != null && rec.lon != null && rec.lon > road.lonMax) return false;
+    // A closure has two ends (lon, endLon): it is past the turn-off only if both are.
+    if (road.lonMax != null && rec.lon != null && Math.min(rec.lon, rec.endLon ?? rec.lon) > road.lonMax) return false;
     return inDir(rec.dir, direction === 'out' ? road.outboundDir : road.returnDir);
   };
 }

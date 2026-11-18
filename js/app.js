@@ -352,7 +352,7 @@ function viewVerdict() {
   const busy = alerts.status() === 'busy';
   const alertRow = plan || sel ? `<div class="alertrow">
     ${plan ? `<span class="tag ok">${plan.dest && plan.dest !== d.id ? esc(nm((DESTINATIONS.find((x) => x.id === plan.dest) || d).name)) + ' · ' : ''}${t('al.on', { when: fWhen(plan.departMs) })}</span><button class="ghost" data-act="alertOff" ${busy ? 'disabled' : ''}>${t('al.off')}</button>` : ''}
-    ${sel && plan?.departMs !== sel.ms ? `<button class="ghost" data-act="alertOn" ${busy ? 'disabled' : ''}>${t(plan ? 'al.move' : 'al.remind')}</button>` : ''}
+    ${sel && (plan?.departMs !== sel.ms || (plan.dest && plan.dest !== d.id)) ? `<button class="ghost" data-act="alertOn" ${busy ? 'disabled' : ''}>${t(plan ? 'al.move' : 'al.remind')}</button>` : ''}
     ${busy ? `<span class="muted">${t('al.saving')}</span>` : S.alertErr ? `<span class="tag bad">${t('al.failed')}</span>` : ''}</div>` : '';
 
   const hero = `<section class="hero ${ev.level}">

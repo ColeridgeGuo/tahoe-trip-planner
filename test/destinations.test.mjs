@@ -169,6 +169,13 @@ describe('Kirkwood: CA-88', () => {
     assert.equal(go(kirkwood, data).level, 'nogo');
     assert.equal(go(kirkwood, data, 'back').level, 'nogo');
   });
+  test('a closure that starts past the turn-off but reaches back onto the trip still counts', () => {
+    const over = makeData({ closures: [closure({ hw: 'SR-88', dir: 'West', lon: -120.06, endLon: -120.109 })] }, r);
+    assert.equal(go(kirkwood, over, 'back').level, 'nogo');
+    assert.equal(go(kirkwood, over).level, 'go');
+    const past = makeData({ closures: [closure({ hw: 'SR-88', dir: 'West', lon: -119.95, endLon: -120.043 })] }, r);
+    assert.equal(go(kirkwood, past, 'back').level, 'go');
+  });
   test('the drive is pinned to two points on the mountain stretch of CA-88', () => {
     assert.deepEqual(r.drivePins, ['hams', 'spur']);
     assert.ok(r.points.filter((p) => r.drivePins.includes(p.id)).every((p) => !p.pin));
