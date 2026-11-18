@@ -282,6 +282,27 @@ export function bestWindow(strip, from = 5, to = 21) {
   return best ? { from: best[0].h, to: best[best.length - 1].h } : null;
 }
 
+// One row per day for the week overview: 24 hourly departures each (level + drive time), the fastest
+// low-risk departure of the day within the usual waking window, and the range of drive times shown.
+export function weekOverview(data, dest, ix, direction, nowMs = Date.now(), from = 5, to = 21) {
+  let lo = Infinity;
+  let hi = -Infinity;
+  const rows = ix.days.map((day) => {
+    const byH = new Map(departureStrip(data, dest, ix, day, direction, nowMs).map((s) => [s.h, s]));
+    const cells = Array.from({ length: 24 }, (_, h) => byH.get(h) || { h, day, none: true });
+    let best = null;
+    for (const c of cells) {
+      if (c.none || c.past || !c.drive) continue;
+      lo = Math.min(lo, c.drive.sec);
+      hi = Math.max(hi, c.drive.sec);
+      if (c.h < from || c.h > to) continue;
+      if (!best || LV[c.level] < LV[best.level] || (LV[c.level] === LV[best.level] && c.drive.sec < best.drive.sec)) best = c;
+    }
+    return { day, cells, best };
+  }).filter((r) => r.cells.some((c) => !c.none && !c.past));
+  return { rows, lo: lo === Infinity ? null : lo, hi: hi === -Infinity ? null : hi };
+}
+
 // ---------- daily summaries ----------
 export function daily(data, ix, pointId, hFrom = 0, hTo = 23) {
   const w = data.weather[pointId];
