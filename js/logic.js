@@ -456,3 +456,72 @@ export function clothing(mtn, town) {
   }
   return out;
 }
+
+// ----- food along the way -----
+const DOW = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+const dowFmt = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short', hour: 'numeric', minute: 'numeric', hourCycle: 'h23' });
+// Day of the week (0 = Sunday) and minutes since midnight, Pacific time.
+function clock(ms) {
+  const p = Object.fromEntries(dowFmt.formatToParts(ms).map((x) => [x.type, x.value]));
+  return { dow: DOW.indexOf(p.weekday.toLowerCase()), min: (+p.hour % 24) * 60 + +p.minute };
+}
+// 'HH:MM-HH:MM[,HH:MM-HH:MM]' as [open, close] minutes; a close at or before the open runs past midnight.
+function ranges(spec) {
+  if (!spec) return [];
+  return String(spec).split(',').map((s) => {
+    const m = s.trim().match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    const a = +m[1] * 60 + +m[2];
+    let b = +m[3] * 60 + +m[4];
+    if (b <= a) b += 1440;
+    return [a, b];
+  }).filter(Boolean);
+}
+const dayRanges = (hours, dow) => ranges(DOW[dow] in hours ? hours[DOW[dow]] : hours.daily);
+
+// Whether a place is open at `ms`, from its hand-entered hours: { state: 'open' | 'closing' | 'closed' | 'unknown' }.
+// 'closing' is open but shutting within `soonMin`. `closeMin` / `openMin` are minutes until it closes / next opens.
+export function openAt(hours, ms, soonMin = 45) {
+  if (!hours) return { state: 'unknown' };
+  const { dow, min } = clock(ms);
+  // Today's ranges, plus yesterday's that run past midnight.
+  const spans = [...dayRanges(hours, dow), ...dayRanges(hours, (dow + 6) % 7).map(([a, b]) => [a - 1440, b - 1440])];
+  const cur = spans.filter(([a, b]) => min >= a && min < b).sort((x, y) => y[1] - x[1])[0];
+  if (cur) return { state: cur[1] - min <= soonMin ? 'closing' : 'open', closeMin: cur[1] - min };
+  const next = spans.map(([a]) => a).filter((a) => a > min).sort((x, y) => x - y)[0];
+  return { state: 'closed', openMin: next != null ? next - min : null };
+}
+
+// Hours from the origin to a place on a normal drive: the place is dropped onto the nearest leg between
+// two timed route points and takes its share of that leg's time. An explicit `offsetH` wins.
+export function placeOffsetH(route, place) {
+  if (Number.isFinite(place.offsetH)) return place.offsetH;
+  const pts = route.points.filter((p) => p.offsetH != null);
+  const k = Math.cos((place.lat * Math.PI) / 180);
+  let best = null;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [a, b] = [pts[i], pts[i + 1]];
+    const [bx, by] = [(b.lon - a.lon) * k, b.lat - a.lat];
+    const [px, py] = [(place.lon - a.lon) * k, place.lat - a.lat];
+    const f = Math.min(1, Math.max(0, (px * bx + py * by) / (bx * bx + by * by || 1)));
+    const d = (px - f * bx) ** 2 + (py - f * by) ** 2;
+    if (!best || d < best.d) best = { d, h: a.offsetH + f * (b.offsetH - a.offsetH) };
+  }
+  return best ? best.h : 0;
+}
+
+// The places on this destination's route in the order you drive past them, each with the time you would
+// reach it for this departure and whether it is open then. Uses the drive time already on hand
+// (`hours`, `stopSec` from driveTime()), so it costs no extra lookups.
+export function foodStops(data, dest, places, departMs, direction, hours = dest.route.driveHours, stopSec = null) {
+  const r = dest.route;
+  const pass = alongRoute(data, dest, departMs, direction, hours, stopSec).map((x) => ({ at: offsetFor(r, x.point, direction), ms: x.ms }));
+  return places.filter((p) => !p.highway || p.highway === r.highway).map((p) => {
+    const at = offsetFor(r, { offsetH: placeOffsetH(r, p) }, direction);
+    let i = pass.findIndex((x) => x.at >= at);
+    if (i <= 0) i = i === 0 ? 1 : pass.length - 1;
+    const [a, b] = [pass[i - 1], pass[i]];
+    const ms = a.ms + (b.at > a.at ? (at - a.at) / (b.at - a.at) : 0) * (b.ms - a.ms);
+    return { place: p, at, ms, open: openAt(p.hours, ms) };
+  }).sort((x, y) => x.at - y.at);
+}

@@ -4,7 +4,7 @@
 const CACHE = 'tahoe-v1';
 const SHELL = [
   './', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'css/style.css',
-  'js/app.js', 'js/alerts.js', 'js/config.js', 'js/i18n.js', 'js/logic.js', 'js/normalize.js', 'js/sync.js',
+  'js/app.js', 'js/alerts.js', 'js/config.js', 'js/food.js', 'js/i18n.js', 'js/logic.js', 'js/normalize.js', 'js/sync.js',
   'js/routes/heavenly.js', 'js/vendor/leaflet.css', 'js/vendor/leaflet.js',
 ];
 const TIMEOUT_MS = 6000;
