@@ -501,13 +501,13 @@ function viewRoads() {
 
   // Places to eat, in the order this direction passes them, timed for the departure picked on the first tab.
   const stops = foodNow();
-  // With a long list: a heading per leg of the drive, and a switch to hide what will be shut on arrival.
+  // With a long list: a heading per town in driving order, and a switch to hide what will be shut on arrival.
   const many = stops.length > 6;
   const shown = many && S.foodOpenOnly ? stops.filter((x) => ['open', 'closing'].includes(x.open.state)) : stops;
   const legs = [];
   for (const x of shown) {
-    const k = x.leg.map((p) => p.id).join('>');
-    if (legs.at(-1)?.k !== k) legs.push({ k, title: x.leg.map((p) => nm(p.name)).join(' → '), rows: [] });
+    const k = x.place.town;
+    if (legs.at(-1)?.k !== k) legs.push({ k, title: k, rows: [] });
     legs.at(-1).rows.push(x);
   }
   const foodRows = (rows) => `<ul class="rows">${rows.map((x) => `<li><span class="badge ${foodCls(x.open)}">${fTime(x.ms)}</span><div><b><a href="${esc(foodUrl(x.place))}" target="_blank" rel="noopener">${esc(x.place.name)}</a></b>
