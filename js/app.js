@@ -158,6 +158,16 @@ function card(key, title, body, extra = '', cls = '') {
   const c = folded.has(key);
   return `<section class="card ${cls} ${c ? 'collapsed' : ''}" data-k="${key}"><h2 data-act="fold" data-v="${key}"><button class="fold" type="button" aria-expanded="${!c}"><span class="chev" aria-hidden="true"></span><span>${title}</span></button>${extra}</h2><div class="cbody">${c ? '' : body}</div></section>`;
 }
+// One button above the first card that folds or unfolds every card on the tab. Left out when the tab has a single card.
+const foldAllBtn = (keys) => {
+  const all = keys.every((k) => folded.has(k));
+  return `<div class="foldall"><button class="ghost" data-act="foldAll" aria-expanded="${!all}"><span class="chev" aria-hidden="true"></span>${t(all ? 'unfoldAll' : 'foldAll')}</button></div>`;
+};
+function withFoldAll(html) {
+  const keys = [...html.matchAll(/<section class="card [^>]*data-k="([^"]+)"/g)].map((x) => x[1]);
+  return keys.length < 2 ? html : html.replace('<section class="card ', foldAllBtn(keys) + '<section class="card ');
+}
+const cardKeys = () => [...document.querySelectorAll('#main .card[data-k]')].map((x) => x.dataset.k);
 
 function renderChrome() {
   document.documentElement.lang = S.lang === 'zh' ? 'zh-CN' : 'en';
@@ -190,7 +200,7 @@ function render() {
   if (!S.data) { m.innerHTML = `<p class="muted pad">${S.error ? `${t('loadFail')}: ${esc(S.error)}` : t('loading')}</p>`; if (S.tab === 'list') m.innerHTML = viewList(); return; }
   // Keep the live map element across re-renders so tiles and the current view are not thrown away.
   const keep = MAP.map ? $('#map') : null;
-  m.innerHTML = { verdict: viewVerdict, weather: viewWeather, roads: viewRoads, wear: viewWear, resort: viewResort, list: viewList }[S.tab]();
+  m.innerHTML = withFoldAll({ verdict: viewVerdict, weather: viewWeather, roads: viewRoads, wear: viewWear, resort: viewResort, list: viewList }[S.tab]());
   const slot = $('#map');
   if (slot && keep) { slot.replaceWith(keep); drawMap(); } else if (slot) initMap(); else destroyMap();
 }
@@ -518,8 +528,10 @@ function viewRoads() {
 
   // A failed source shows how old its carried-over data is, or "failed" when there is none.
   const st = (k) => { const s = S.data.status[k]; return s?.ok === false ? `<span class="tag bad">${s.dataAt ? t('srcStaleTag', { v: fAgo(s.dataAt) }) : t('loadFail')}</span>` : ''; };
-  return dirSeg + card('map', `${r.label} ${t('mapTitle')}`, mapHtml) + foodCard + card('chain', `${r.label} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? liveTag(S.chainLiveAt) : fAgo(S.data.generatedAt)}</span>${st('chain')}`) +
-    card('alts', t('altTitle'), alts) + card('inc', t('incTitle'), inc, st('incidents')) + card('clos', t('closTitle'), clos, st('closures')) + card('cams', t('camTitle'), cams, st('cams')) + `<p class="note pad0">${t('srcTextNote')} · ${t('chainDir', { dir: dirLabel })}</p>`;
+  // By how much each one can change the trip: what can stop you, then where it is, then the ways round, then the nice-to-haves.
+  return dirSeg + card('chain', `${r.label} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? liveTag(S.chainLiveAt) : fAgo(S.data.generatedAt)}</span>${st('chain')}`) +
+    card('map', `${r.label} ${t('mapTitle')}`, mapHtml) + card('inc', t('incTitle'), inc, st('incidents')) + card('clos', t('closTitle'), clos, st('closures')) +
+    card('alts', t('altTitle'), alts) + card('cams', t('camTitle'), cams, st('cams')) + foodCard + `<p class="note pad0">${t('srcTextNote')} · ${t('chainDir', { dir: dirLabel })}</p>`;
 }
 
 // ----- wear -----
@@ -644,7 +656,17 @@ document.addEventListener('click', (e) => {
       if (!open && v === 'rcams') { S.camsLoaded.clear(); body.innerHTML = ''; } // stop the streams
       if (!open && v === 'map') { destroyMap(); body.innerHTML = ''; }
       if (open && !body.innerHTML.trim()) break; // was rendered collapsed: build it now
+      const fa = $('.foldall'); // keep the fold-all button in step without a full render
+      if (fa) fa.outerHTML = foldAllBtn(cardKeys());
       return;
+    }
+    case 'foldAll': { // unfolds only when every card is already folded
+      const keys = cardKeys();
+      const open = keys.every((k) => folded.has(k));
+      for (const k of keys) open ? folded.delete(k) : folded.add(k);
+      store.set('folded', [...folded]);
+      if (!open) S.camsLoaded.clear(); // stop the streams
+      break;
     }
     case 'del': list.remove(v); return;
     case 'clearDone': list.clearDone(); return;
