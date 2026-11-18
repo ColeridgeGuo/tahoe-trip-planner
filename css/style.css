@@ -255,3 +255,6 @@ footer{max-width:60rem;margin:auto;padding:0.25rem 1.25rem 1rem;font-size:0.7188
 .cic svg{width:1.0625rem;height:1.0625rem;display:block}
 /* app icon left of the page title */
 .brand .logo{width:1.375em;height:1.375em;vertical-align:-0.3em;margin-right:0.4em;border-radius:0.3em}
+/* the destination and route always sit on their own line under the page title */
+#title{flex-direction:column;align-items:flex-start;flex-wrap:nowrap}
+@media (min-width:900px) and (max-width:1149px){#title .via{display:inline}}
