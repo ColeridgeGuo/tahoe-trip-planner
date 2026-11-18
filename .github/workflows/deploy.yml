@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      stale_min:
+        description: Set only by the watchdog workflow - minutes since the published data was last refreshed
+        required: false
+        default: ''
   # No `schedule:` here on purpose. The 15-minute refresh is triggered from outside by a cron-job that calls
   # workflow_dispatch; GitHub's own scheduler was late and would now only duplicate those runs.
 
@@ -37,6 +42,8 @@ jobs:
         run: node scripts/notify.mjs
         env:
           ALERT_GIST_ID: ${{ secrets.ALERT_GIST_ID }}
+          # Set when the watchdog started this run because the scheduled refresh had stopped.
+          WATCHDOG_AGE_MIN: ${{ inputs.stale_min }}
           GITHUB_TOKEN: ${{ github.token }}
       - name: Assemble site
         run: |

@@ -42,6 +42,57 @@ export function carriedWeather(prev, id, t0, nowMs = Date.now()) {
   return { ...shiftWeather(old, Math.round((t0 - prev.t0) / 36e5)), at: oldAt, carried: true };
 }
 
+// Snowfall for the hours just before the file's first hour, oldest first, taken from the previous file (its own
+// past hours, then its forecast). The page uses it to tell that snow is still lying on the road after a storm
+// has ended. Null where the previous file does not reach.
+export const PAST_H = 24;
+export function pastSnow(prev, id, t0) {
+  const out = new Array(PAST_H).fill(null);
+  const old = prev?.weather?.[id];
+  if (!old?.snow || !Number.isFinite(prev.t0)) return out;
+  const shift = Math.round((t0 - prev.t0) / 36e5);
+  const before = old.snowPast || [];
+  for (let j = 0; j < PAST_H; j++) {
+    const k = shift - PAST_H + j; // this hour's index in the previous file; negative = before its first hour
+    out[j] = (k >= 0 ? old.snow[k] : before[before.length + k]) ?? null;
+  }
+  return out;
+}
+
+// ---------- what actually happened ----------
+// One row per hour: the strictest chain control seen on the route highway each way during that hour, next to
+// the snowfall rate and temperature forecast for that hour at the mountain points. Published as
+// data/history.json so the snow thresholds in js/logic.js can be checked against real storms.
+//   t: start of the hour; e / w: highest level eastbound / westbound (0 none, 1-3 R level, 4 closed, null: feed failed)
+//   s / c: mm of snow per hour and °C at `points`, in that order
+export const HISTORY_MAX = 24 * 60; // about two months
+export function addHistory(hist, row, points) {
+  const rows = Array.isArray(hist?.rows) ? hist.rows : [];
+  const same = rows.find((r) => r.t === row.t);
+  const hi = (a, b) => (a == null ? b : b == null ? a : Math.max(a, b));
+  const merged = same ? { ...row, e: hi(same.e, row.e), w: hi(same.w, row.w) } : row;
+  return { v: 1, points, rows: [...rows.filter((r) => r.t !== row.t), merged].sort((a, b) => a.t - b.t).slice(-HISTORY_MAX) };
+}
+
+// ---------- TomTom quota ----------
+// Requests sent so far today, carried from run to run, and yesterday's total once the day turns. TomTom counts
+// its free daily quota by UTC day.
+export function quotaUsed(prev, calls, nowMs = Date.now()) {
+  const day = new Date(nowMs).toISOString().slice(0, 10);
+  if (prev?.day === day) return { ...prev, n: prev.n + calls };
+  return { day, n: calls, ...(prev?.day ? { prev: { day: prev.day, n: prev.n } } : {}) };
+}
+
+// ---------- Caltrans ----------
+// The lane-closure feed lists some closures twice; keep one of each.
+export function dedupe(list) {
+  const seen = new Set();
+  return list.filter((c) => {
+    const k = JSON.stringify(c);
+    return seen.has(k) ? false : (seen.add(k), true);
+  });
+}
+
 // ---------- NWS ----------
 function durH(iso) {
   const m = /P(?:(\d+)D)?(?:T(?:(\d+)H)?)?/.exec(iso);

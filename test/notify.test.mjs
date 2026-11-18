@@ -1,12 +1,13 @@
 // Change alerts: when a push notification is sent for the departure being watched (scripts/notify.mjs).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { planState, decide } from '../scripts/notify.mjs';
+import { planState, decide, summariesDue, watchdogNote } from '../scripts/notify.mjs';
 import { dest, H, MIN, NOW, AWD, makeData, fail, chainRow, closure, liveDrive } from './helpers.mjs';
 
 const plan = (over = {}) => ({ dest: dest.id, direction: 'out', departMs: NOW + 3 * H, setAt: NOW - 10 * MIN, ...over });
 const state = (data, p = plan()) => planState(data, dest, p, AWD, NOW);
-const told = (over = {}) => ({ level: 'go', chain: 0, drive: false, ...over });
+// The fixture departure is at 09:00 on the same morning, so the evening-before summary is already behind it.
+const told = (over = {}) => ({ level: 'go', chain: 0, drive: false, eve: true, ...over });
 const cur = (over = {}) => ({ level: 'go', chain: 0, drive: false, why: [], ...over });
 const say = (t, c, p = plan(), lang = 'zh') => decide(t, c, p, dest, lang, NOW);
 
@@ -26,8 +27,11 @@ describe('the state of a watched departure', () => {
     assert.equal(state(data, plan({ direction: 'back' })).chain, 2);
   });
   test('says whether a TomTom time went into the verdict', () => {
-    assert.equal(state(makeData({ drive: liveDrive() }), plan({ departMs: NOW + 10 * MIN })).drive, true);
+    const withTime = state(makeData({ drive: liveDrive() }), plan({ departMs: NOW + 10 * MIN }));
+    assert.equal(withTime.drive, true);
+    assert.equal(withTime.sec, 13500);
     assert.equal(state(makeData()).drive, false);
+    assert.equal(state(makeData()).sec, undefined);
   });
   for (const key of ['chain', 'closures', 'incidents', 'alerts', 'weather']) {
     test(`${key} failed on this run: no state, so no notification about a gap in the data`, () => {
@@ -50,13 +54,13 @@ describe('whether to notify', () => {
     assert.ok(m.title && m.body);
     assert.ok(!m.silent);
     assert.ok(m.body.includes('R1'));
-    assert.deepEqual(m.told, { level: 'caution', chain: 1, drive: false });
+    assert.deepEqual(m.told, { level: 'caution', chain: 1, drive: false, eve: true });
   });
   test('no record of a departure set hours ago: take the state quietly, do not announce it again', () => {
     const m = say(undefined, cur(), plan({ setAt: NOW - 3 * H - MIN }));
     assert.equal(m.silent, true);
     assert.equal(m.title, undefined);
-    assert.deepEqual(m.told, { level: 'go', chain: 0, drive: false });
+    assert.deepEqual(m.told, { level: 'go', chain: 0, drive: false, eve: true });
   });
   test('the verdict changed, either way', () => {
     const worse = say(told(), cur({ level: 'nogo', why: ['closures'] }));
@@ -82,21 +86,21 @@ describe('whether to notify', () => {
   test('both changed: one notification with both', () => {
     const m = say(told(), cur({ level: 'caution', chain: 1, why: ['chain'] }));
     assert.equal(m.body.split('\n').length, 3); // verdict, chain, reason
-    assert.deepEqual(m.told, { level: 'caution', chain: 1, drive: false });
+    assert.deepEqual(m.told, { level: 'caution', chain: 1, drive: false, eve: true });
   });
   test('TomTom dropped out: an apparent improvement is held back until drive times return', () => {
     const before = told({ level: 'caution', drive: true });
     assert.equal(say(before, cur({ level: 'go', drive: false })), null);
     const back = say(before, cur({ level: 'go', drive: true }));
-    assert.deepEqual(back.told, { level: 'go', chain: 0, drive: true });
+    assert.deepEqual(back.told, { level: 'go', chain: 0, drive: true, eve: true });
   });
   test('TomTom dropped out: getting worse is still sent', () => {
     const m = say(told({ level: 'caution', drive: true }), cur({ level: 'nogo', drive: false, why: ['closures'] }));
-    assert.deepEqual(m.told, { level: 'nogo', chain: 0, drive: false });
+    assert.deepEqual(m.told, { level: 'nogo', chain: 0, drive: false, eve: true });
   });
   test('held-back improvement does not block a chain change', () => {
     const m = say(told({ level: 'caution', chain: 1, drive: true }), cur({ level: 'go', chain: 2, drive: false }));
-    assert.deepEqual(m.told, { level: 'caution', chain: 2, drive: true });
+    assert.deepEqual(m.told, { level: 'caution', chain: 2, drive: true, eve: true });
   });
   test('English and Chinese both produce a message', () => {
     for (const lang of ['zh', 'en']) {
@@ -104,5 +108,110 @@ describe('whether to notify', () => {
       assert.ok(m.title.length > 0 && m.body.length > 0, lang);
       assert.ok(!/undefined|\{\w+\}/.test(m.title + m.body), lang); // every placeholder filled, every key found
     }
+  });
+});
+
+describe('drive time changes', () => {
+  const MINS = 60;
+  test('half an hour longer than last reported: sent, and that becomes the new baseline', () => {
+    const m = say(told({ drive: true, sec: 4 * 3600 }), cur({ drive: true, sec: 4 * 3600 + 30 * MINS }));
+    assert.ok(m.body.includes('4:00') && m.body.includes('4:30'));
+    assert.equal(m.told.sec, 4 * 3600 + 30 * MINS);
+  });
+  test('less than half an hour: silence, and the baseline stays so small steps cannot creep past it unseen', () => {
+    const before = told({ drive: true, sec: 4 * 3600 });
+    assert.equal(say(before, cur({ drive: true, sec: 4 * 3600 + 29 * MINS })), null);
+    assert.equal(say(before, cur({ drive: true, sec: 4 * 3600 - 29 * MINS })), null);
+  });
+  test('half an hour shorter is sent too', () => {
+    const m = say(told({ drive: true, sec: 5 * 3600 }), cur({ drive: true, sec: 4 * 3600 + 20 * MINS }));
+    assert.ok(m.body.includes('4:20'));
+  });
+  test('the first drive time seen is recorded quietly', () => {
+    const m = say(told(), cur({ drive: true, sec: 4 * 3600 }));
+    assert.equal(m.silent, true);
+    assert.equal(m.told.sec, 4 * 3600);
+  });
+  test('TomTom missing on this run: nothing sent, the baseline is kept', () => {
+    assert.equal(say(told({ drive: true, sec: 4 * 3600 }), cur({ drive: false })), null);
+    const m = say(told({ drive: true, sec: 4 * 3600 }), cur({ drive: false, chain: 1 }));
+    assert.equal(m.told.sec, 4 * 3600);
+  });
+  test('the first message states the drive time', () => {
+    const m = say(undefined, cur({ drive: true, sec: 4 * 3600 + 5 * MINS }));
+    assert.ok(m.body.includes('4:05'));
+    assert.equal(m.told.sec, 4 * 3600 + 5 * MINS);
+  });
+});
+
+describe('summaries before leaving', () => {
+  // Leaving Thursday 15 Jan at 07:00 Pacific. NOW is Tuesday 06:00.
+  const depart = NOW + 49 * H;
+  const eve = depart - 11 * H; // Wednesday 20:00 Pacific
+  const p = plan({ departMs: depart, setAt: NOW });
+  const at = (ms, t, c = cur()) => decide(t, c, p, dest, 'zh', ms);
+  const fresh = { level: 'go', chain: 0, drive: false };
+  test('due from 20:00 Pacific the evening before, and from two hours before leaving', () => {
+    assert.deepEqual(summariesDue(p, eve - MIN), { eve: false, pre: false });
+    assert.deepEqual(summariesDue(p, eve), { eve: true, pre: false });
+    assert.deepEqual(summariesDue(p, depart - 2 * H), { eve: true, pre: true });
+  });
+  test('nothing before the evening', () => {
+    assert.equal(at(eve - MIN, fresh), null);
+  });
+  test('the evening summary goes out once, although nothing changed', () => {
+    const m = at(eve, fresh, cur({ drive: true, sec: 4 * 3600 }));
+    assert.ok(m.body.includes('4:00'));
+    assert.equal(m.told.eve, true);
+    assert.equal(m.told.pre, undefined);
+    assert.equal(at(eve + 15 * MIN, m.told, cur({ drive: true, sec: 4 * 3600 })), null);
+  });
+  test('two hours before leaving: the last summary, once', () => {
+    const m = at(depart - 2 * H, { ...fresh, eve: true });
+    assert.equal(m.told.pre, true);
+    assert.equal(at(depart - 2 * H + 15 * MIN, m.told), null);
+  });
+  test('a summary and a change on the same run are one notification', () => {
+    const m = at(eve, fresh, cur({ level: 'caution', why: ['snow'] }));
+    assert.equal(m.body.split('\n').length, 3); // summary, verdict change, reason
+    assert.equal(m.told.level, 'caution');
+  });
+  test('an alert set after the evening has passed does not get that summary later', () => {
+    const m = at(eve + H, undefined, cur(), );
+    assert.equal(decide(undefined, cur(), plan({ departMs: depart, setAt: eve + H }), dest, 'zh', eve + H).told.eve, true);
+    assert.ok(m);
+  });
+  test('a missed evening summary is not sent after the two-hour one', () => {
+    const m = at(depart - H, fresh);
+    assert.equal(m.told.eve, true);
+    assert.equal(m.told.pre, true);
+    assert.equal(at(depart - 30 * MIN, m.told), null);
+  });
+  test('the summary carries the chain level even for a trip more than a day away', () => {
+    const late = plan({ departMs: NOW + 64 * H, setAt: NOW }); // Thursday 22:00: the evening before is 26 h ahead of it
+    const m = decide({ ...fresh }, cur({ chain: 2 }), late, dest, 'zh', late.departMs - 26 * H);
+    assert.ok(m.body.includes('R2'));
+    assert.equal(m.told.chain, 2);
+  });
+  test('English and Chinese both fill every placeholder', () => {
+    for (const lang of ['zh', 'en']) {
+      for (const [ms, t] of [[eve, fresh], [depart - 2 * H, { ...fresh, eve: true, sec: 3 * 3600 }]]) {
+        const m = decide(t, cur({ drive: true, sec: 5 * 3600 }), p, dest, lang, ms);
+        assert.ok(!/undefined|\{\w+\}/.test(m.title + m.body), lang + m.body);
+      }
+    }
+  });
+});
+
+describe('the scheduled refresh stopped', () => {
+  test('said once, then not again for a day', () => {
+    const m = watchdogNote(undefined, 70, 'zh', NOW);
+    assert.ok(m.title && m.body.includes('70'));
+    assert.equal(watchdogNote({ at: NOW - 23 * H }, 70, 'zh', NOW), null);
+    assert.ok(watchdogNote({ at: NOW - 25 * H }, 70, 'zh', NOW));
+  });
+  test('a long outage is given in hours; both languages fill every placeholder', () => {
+    assert.ok(watchdogNote(undefined, 600, 'zh', NOW).body.includes('10 小时'));
+    for (const lang of ['zh', 'en']) assert.ok(!/undefined|\{\w+\}/.test(watchdogNote(undefined, 600, lang, NOW).body));
   });
 });

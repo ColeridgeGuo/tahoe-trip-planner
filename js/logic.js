@@ -16,6 +16,11 @@ export const TH = {
   gustRoad: 80, // km/h on the pass
   gustLiftMod: 55, // km/h on the summit: upper lifts may go on hold
   gustLiftHigh: 80, // km/h: gondola and upper mountain likely on hold
+  // Snow already on the road when you cross: this much new snow (mm) within this many hours before, either
+  // rule, while it is packTemp (°C) or colder as you cross. Chain control is then probably still up.
+  // First guesses, to be checked against data/history.json after real storms.
+  pack: [{ hours: 12, mm: 50 }, { hours: 24, mm: 100 }],
+  packTemp: 1,
   staleMin: 120,
   liveHorizonH: 6, // live road status only decides trips starting this soon
 };
@@ -30,7 +35,14 @@ export function index(data) {
   return { hours, days };
 }
 
-const at = (w, field, i) => (w && i >= 0 && i < w[field].length ? w[field][i] : null);
+// Hour `i` of a forecast field. Hours before the file's first hour are read from `<field>Past` where the fetch
+// script keeps them (only `snowPast`: the last day's snowfall, so snow already on the ground is not forgotten).
+const at = (w, field, i) => {
+  if (!w) return null;
+  if (i >= 0) return i < w[field].length ? w[field][i] : null;
+  const past = w[field + 'Past'];
+  return past && past.length + i >= 0 ? past[past.length + i] : null;
+};
 const idx = (data, ms) => Math.round((ms - data.t0) / 36e5);
 
 export function offsetFor(route, point, direction) {
@@ -159,7 +171,23 @@ export function forecastFactors(data, dest, departMs, direction, hours = dest.ro
       if (v > peak.rate) peak = { rate: v, stop: s };
     }
   }
+  // Snow already on the road: what fell in the hours before crossing, if it is still freezing by then. A
+  // storm that has just ended leaves chain control up for hours, although nothing is falling any more.
+  let pack = null;
+  for (const s of mtn) {
+    const w = data.weather[s.point.id];
+    const i = idx(data, s.ms);
+    const temp = at(w, 'temp', i);
+    if (temp == null || temp > TH.packTemp) continue;
+    for (const rule of TH.pack) {
+      let mm = 0;
+      for (let j = i - rule.hours; j < i; j++) mm += at(w, 'snow', j) ?? 0;
+      // Of the rules met, report the one furthest over its limit.
+      if (mm >= rule.mm && (!pack || mm / rule.mm > pack.mm / pack.limit)) pack = { mm, hours: rule.hours, limit: rule.mm, stop: s, temp };
+    }
+  }
   if (missing && peak.rate === 0) factors.push({ key: 'snow', level: 'caution', msg: 'snowUnknown' });
+  else if (peak.rate < TH.snowLight && pack) factors.push({ key: 'snow', level: 'caution', msg: 'snowPack', v: { ...peak, pack } });
   else if (peak.rate >= TH.snowExtreme) factors.push({ key: 'snow', level: 'nogo', msg: 'snowExtreme', v: peak });
   else if (peak.rate >= TH.snowHeavy) factors.push({ key: 'snow', level: 'caution', msg: 'snowHeavy', v: peak });
   else if (peak.rate >= TH.snowLight) factors.push({ key: 'snow', level: 'caution', msg: 'snowLight', v: peak });
@@ -181,7 +209,8 @@ export function forecastFactors(data, dest, departMs, direction, hours = dest.ro
   const wxAt = weatherStaleAt(data, r.mountainPoints);
   for (const f of factors) if (f.key === 'snow' || f.key === 'wind') stamp(f, wxAt, nowMs);
 
-  return { factors, stops, level: factors.reduce((l, f) => worst(l, f.level), 'ok') };
+  // `heavy`: snowing hard enough that chain control is very likely, so the charts can tell it from light snow.
+  return { factors, stops, level: factors.reduce((l, f) => worst(l, f.level), 'ok'), heavy: peak.rate >= TH.snowHeavy };
 }
 
 // What a given chain level means for this vehicle.
@@ -213,6 +242,9 @@ export const inDir = (recDir, dir) => !dir || !recDir || recDir === 'N/A' || rec
 export function closuresDuring(data, fromMs, toMs, dir) {
   return data.closures.filter((c) => !isRamp(c) && inDir(c.dir, dir) && c.start < toMs && (c.end == null || c.end > fromMs));
 }
+export const isSerious = (x) => /collision|closure|sigalert|fatal|spin/i.test(x.type);
+// East of where the mountain road begins (route.mountainLonMin). A record without a position counts.
+export const onMountain = (route, x) => route.mountainLonMin == null || !Number.isFinite(x.lon) || x.lon >= route.mountainLonMin;
 export const incidentsFor = (data, dir) => data.incidents.filter((x) => inDir(x.dir, dir));
 
 export function evaluate(data, dest, opts) {
@@ -251,7 +283,9 @@ export function evaluate(data, dest, opts) {
   if (!src('incidents')) factors.push({ key: 'incidents', level: 'caution', msg: 'srcFailed' });
   else {
     const all = incidentsFor(data, dir);
-    const serious = all.filter((x) => /collision|closure|sigalert|fatal|spin/i.test(x.type));
+    // Only the mountain section decides. Collisions in the Sacramento valley are an hour or two from the pass,
+    // are usually cleared by then, and the delay they cause is already in the TomTom drive time.
+    const serious = all.filter((x) => isSerious(x) && onMountain(r, x));
     const level = live && serious.length ? 'caution' : live ? 'ok' : 'info';
     add('incidents', { key: 'incidents', level, msg: all.length ? 'incSome' : 'incNone', v: { all, serious }, live });
   }
@@ -303,7 +337,8 @@ export function departureStrip(data, dest, ix, day, direction, nowMs = Date.now(
     .map((h) => {
       if (h.i < 0) return { ...h, past: true, level: 'ok', drive: null };
       const dt = driveTime(data, dest, Math.max(h.ms, nowMs), direction, nowMs);
-      return { ...h, past: h.ms + 36e5 <= nowMs, level: forecastFactors(data, dest, h.ms, direction, dt.hours, nowMs, dt.stops).level, drive: dt.src === 'fixed' ? null : dt };
+      const fc = forecastFactors(data, dest, h.ms, direction, dt.hours, nowMs, dt.stops);
+      return { ...h, past: h.ms + 36e5 <= nowMs, level: fc.level, heavy: fc.heavy, drive: dt.src === 'fixed' ? null : dt };
     });
 }
 export function bestWindow(strip, from = 5, to = 21) {

@@ -1,0 +1,34 @@
+name: Watchdog
+
+# A safety net, not the schedule. The 15-minute refresh is triggered from outside (see deploy.yml). If that
+# stops - the cron-job is disabled, or its GitHub token expires - nothing would notice. Once an hour this
+# checks how old the published data is; only when it is too old does it start the refresh itself, and that
+# run sends a "refresh has stopped" notification (once a day at most). While the outside trigger works this
+# does nothing: no fetch, no TomTom requests.
+# GitHub's own scheduler runs late and unevenly, which is fine here. GitHub also switches a scheduled
+# workflow off after 60 days without a commit to the repository; it sends an email when it does.
+on:
+  schedule:
+    - cron: '37 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Start a refresh if the published data is too old
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAX_AGE_MIN: 45
+        run: |
+          site="https://$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]').github.io/${GITHUB_REPOSITORY#*/}"
+          # generatedAt is the first field of every data file, in milliseconds.
+          at=$(curl -fsS --retry 3 --max-time 30 -r 0-200 "$site/data/heavenly.json?ts=$(date +%s)" | grep -o '"generatedAt":[0-9]*' | head -1 | cut -d: -f2 || true)
+          if [ -z "$at" ]; then echo "Could not read the published data; leaving it to the next check."; exit 0; fi
+          age=$(( ($(date +%s) - at / 1000) / 60 ))
+          echo "Published data is $age min old (limit $MAX_AGE_MIN)."
+          if [ "$age" -le "$MAX_AGE_MIN" ]; then exit 0; fi
+          gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref main -f stale_min="$age"
