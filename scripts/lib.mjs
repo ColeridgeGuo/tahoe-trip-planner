@@ -77,7 +77,58 @@ export function ptToMs(str) {
   return guess + 8 * 36e5;
 }
 
+// Which of the route's roads a CHP log is on, and which way it faces there. `roads` come from roadsOf() in
+// js/logic.js; `mainMatch` is the pattern for the main highway (feeds.incidentMatch), the others are matched by
+// their number. `dirOf` is incidentDir() from js/normalize.js. Null when the log names none of them.
+export function incidentRoad(loc, desc, roads, mainMatch, dirOf) {
+  for (const [i, road] of roads.entries()) {
+    const num = road.highway.replace(/\D/g, '');
+    const re = new RegExp(i === 0 && mainMatch ? mainMatch : `(^|[^0-9])${num}([^0-9]|$)`, 'i');
+    if (!re.test(loc) && !re.test(desc)) continue;
+    return { hw: road.highway, dir: dirOf(loc, desc, num, [road.outboundDir, road.returnDir]) };
+  }
+  return null;
+}
+
 // ---------- TomTom ----------
+// How often drive times are refreshed. Three destinations share one free daily quota (2,500 requests), split
+// about 2:1:1: the destination marked `driveRefresh: 'full'` in js/config.js is refreshed more often than
+// the ones marked 'light'. Only what actually moves is fetched often. Per destination, per day:
+//                                                                                   full   light
+//   live     both ways, on every run (96 a day) / on every other run                 192      96
+//   hourly   the next 24 h, one point an hour. The first `nearH` hours follow current
+//            traffic and are fetched again every hour; later hours come from TomTom's
+//            historic profiles and are fetched again only when `midEveryMs` old (2 h /
+//            12 h). An hour is fetched 14 / 5 times before it passes, both ways       672     240
+//   long     hours 24-192, every 2 h, once a day: 85 x 2                              170     170
+//                                                                                   1,034     506
+// One full and two light destinations: about 2,050 a day.
+export const CADENCE = {
+  full: { liveEveryMs: 0, nearH: 3, midEveryMs: 2 * 36e5 - 5 * 6e4 },
+  light: { liveEveryMs: 25 * 6e4, nearH: 3, midEveryMs: 12 * 36e5 - 5 * 6e4 },
+};
+export const cadenceOf = (dest) => CADENCE[dest.driveRefresh] || CADENCE.light;
+export const HOURLY_EVERY_MS = 55 * 6e4;
+export const LONG_EVERY_MS = 24 * 36e5 - 5 * 6e4;
+export const LONG_STEP_H = 2;
+export const LONG_TO_H = 192; // a day past the 7 the page shows, so a day-old forecast still covers them
+// The live reading of the last run, if this destination does not need a new one yet.
+export function keptLive(prev, cadence, nowMs) {
+  return cadence.liveEveryMs && prev?.out?.sec && prev?.back?.sec && nowMs - prev.at < cadence.liveEveryMs ? { at: prev.at, out: prev.out, back: prev.back } : null;
+}
+// For an hourly refresh starting at hour `h0`: the points of the last forecast that can be kept, by time.
+// Every hour not in the result has to be fetched. `prevAt` dates points saved before each carried its own time.
+export function keptHours(prev, prevAt, h0, nowMs, cadence) {
+  const kept = new Map();
+  const back = new Map((prev?.back || []).map((x) => [x.ms, x]));
+  for (const out of prev?.out || []) {
+    const b = back.get(out.ms);
+    if (!b || !out.stops || !b.stops || out.ms < h0 + cadence.nearH * 36e5) continue;
+    if (nowMs - Math.min(out.at ?? prevAt ?? 0, b.at ?? prevAt ?? 0) >= cadence.midEveryMs) continue;
+    kept.set(out.ms, { out, back: b });
+  }
+  return kept;
+}
 const STOP_MAX_KM = 5; // a point further than this from the route TomTom chose is not timed
 function km(aLat, aLon, bLat, bLon) {
   const r = Math.PI / 180;

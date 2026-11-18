@@ -3,7 +3,8 @@
 import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { DESTINATIONS } from '../js/config.js';
 import { CC_URL, normalizeChain, incidentDir } from '../js/normalize.js';
-import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes } from './lib.mjs';
+import { roadsOf } from '../js/logic.js';
+import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes, incidentRoad, keptHours, keptLive, cadenceOf, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H } from './lib.mjs';
 
 const UA = 'tahoe-trip-planner (personal trip dashboard, github pages)';
 const pad = (d) => String(d).padStart(2, '0');
@@ -47,15 +48,18 @@ async function chain(feeds) {
 
 async function cams(feeds) {
   const out = [];
+  // Which highways to show cameras for, and between which longitudes.
+  const roads = feeds.camRoads || [{ highway: feeds.camHighway, lonMin: feeds.camLonMin }];
   for (const d of feeds.cctvDistricts) {
     const j = await get(`https://cwwp2.dot.ca.gov/data/d${d}/cctv/cctvStatusD${pad(d)}.json`);
     for (const { cctv: c } of j.data) {
       const l = c.location;
-      if (l.route !== feeds.camHighway || c.inService !== 'true' || +l.longitude < feeds.camLonMin) continue;
+      const road = roads.find((x) => x.highway === l.route);
+      if (!road || c.inService !== 'true' || +l.longitude < (road.lonMin ?? -Infinity) || +l.longitude > (road.lonMax ?? Infinity)) continue;
       const img = c.imageData?.static?.currentImageURL;
       if (!img) continue;
       out.push({
-        name: l.locationName.replace(/^Hwy \d+ at /i, '').replace(/_/g, ' '),
+        name: l.locationName.replace(/^Hwy \d+ at /i, '').replace(/^\d+ - /, '').replace(/_/g, ' '),
         place: l.nearbyPlace,
         lat: +l.latitude,
         lon: +l.longitude,
@@ -68,15 +72,18 @@ async function cams(feeds) {
   return out.sort((a, b) => a.lon - b.lon);
 }
 
-async function closures(feeds, hw) {
+async function closures(feeds, route) {
   const now = Date.now();
+  const roads = roadsOf(route);
   const out = [];
   for (const d of feeds.lcsDistricts) {
     const j = await get(`https://cwwp2.dot.ca.gov/data/d${d}/lcs/lcsStatusD${pad(d)}.json`);
     for (const { lcs: c } of j.data) {
       const b = c.location.begin;
       const e = c.location.end;
-      if (b.beginRoute !== hw) continue;
+      const road = roads.find((x) => x.highway === b.beginRoute);
+      if (!road) continue;
+      if (road.lonMax != null && Math.min(+b.beginLongitude, +e.endLongitude) > road.lonMax) continue; // past the turn-off
       const k = c.closure;
       const t = k.closureTimestamp;
       const start = +t.closureStartEpoch * 1000;
@@ -85,6 +92,7 @@ async function closures(feeds, hw) {
       if (k.code1098?.isCode1098 === 'true') continue; // crew reported finished
       if ((end && end < now) || start > now + 8 * 864e5) continue;
       out.push({
+        hw: road.highway,
         from: b.beginLocationName,
         to: e.endLocationName,
         place: b.beginNearbyPlace,
@@ -113,10 +121,8 @@ const unq = (s) => (s || '').replace(/^"|"$/g, '').trim();
 const tag = (x, t) => unq((new RegExp(`<${t}>([\\s\\S]*?)</${t}>`).exec(x) || [])[1]);
 async function incidents(feeds, route) {
   const xml = await get('https://media.chp.ca.gov/sa_xml/sa.xml', { json: false });
-  const re = new RegExp(feeds.incidentMatch, 'i');
   const box = feeds.incidentBox;
-  const hwNum = route.highway.replace(/\D/g, '');
-  const dirs = [route.outboundDir, route.returnDir];
+  const roads = roadsOf(route);
   const out = [];
   for (const log of xml.split('<Log ').slice(1)) {
     const ll = /(\d+):(\d+)/.exec(tag(log, 'LATLON'));
@@ -126,7 +132,10 @@ async function incidents(feeds, route) {
     if (lat < box.latMin || lat > box.latMax || lon < box.lonMin || lon > box.lonMax) continue;
     const loc = tag(log, 'Location');
     const desc = tag(log, 'LocationDesc');
-    if (!re.test(loc) && !re.test(desc)) continue;
+    const on = incidentRoad(loc, desc, roads, feeds.incidentMatch, incidentDir);
+    if (!on) continue;
+    const lonMax = roads.find((x) => x.highway === on.hw).lonMax;
+    if (lonMax != null && lon > lonMax) continue; // past the turn-off
     const details = [...log.matchAll(/<IncidentDetail>([\s\S]*?)<\/IncidentDetail>/g)].map((m) => unq(m[1]).replace(/^\[\d+\]\s*/, ''));
     out.push({
       id: (/ID = "([^"]+)"/.exec(log) || [])[1],
@@ -134,7 +143,8 @@ async function incidents(feeds, route) {
       type: tag(log, 'LogType').replace(/^\w+-/, ''),
       loc,
       desc,
-      dir: incidentDir(loc, desc, hwNum, dirs),
+      hw: on.hw,
+      dir: on.dir,
       area: tag(log, 'Area'),
       lat,
       lon,
@@ -216,37 +226,40 @@ async function ttRoute(points, departMs, timed = []) {
   throw new Error(`TomTom routing: ${last}`);
 }
 // Live drive time both ways on every run. Forecasts are refreshed far less often and otherwise carried over from
-// the previously published file, to stay well inside the free daily quota (2,500 requests):
-//   live     2 requests x 96 runs a day                       = 192
-//   hourly   next 24 h, every hour, refreshed hourly: 48 x 24 = 1,152
-//   long     hours 24-168, every 2 h, refreshed every 12 h: 146 x 2 = 292
-// About 1,640 a day for one destination. Beyond a day TomTom predicts from its historic weekly traffic
-// profiles, which do not move between runs, so a coarse grid refreshed twice a day loses nothing.
-const HOURLY_EVERY_MS = 55 * 6e4;
-const LONG_EVERY_MS = 12 * 36e5 - 5 * 6e4;
+// the previously published file, to stay inside the free daily quota: the schedule and the arithmetic are in
+// ./lib.mjs. Beyond a few hours TomTom predicts from its historic weekly traffic profiles, which do not move
+// between runs, so refreshing those rarely loses nothing.
 const LONG_RETRY_MS = 60 * 6e4; // after a failed long refresh, wait this long rather than retrying every run
-const LONG_STEP_H = 2;
-const LONG_TO_H = 168;
 async function drive(dest, prevFile) {
   const pt = (id) => dest.route.points.find((p) => p.id === id);
   const way = [dest.route.points[0], ...dest.route.drivePins.map(pt), pt(dest.route.townPoint)];
-  const dirs = { out: way, back: [...way].reverse() };
+  // A waypoint on a divided road has a spot on each carriageway (`pin`), used for the matching direction.
+  const pinned = (p, k) => (p.pin ? { ...p, lat: p.pin[k][0], lon: p.pin[k][1] } : p);
+  const dirs = { out: way.map((p) => pinned(p, 'out')), back: [...way].reverse().map((p) => pinned(p, 'back')) };
   // The points the page shows conditions for, in route order (west to east). Every drive time carries
   // `stops`: seconds from departure to each of them, in this order whichever way the trip goes.
   const timed = dest.route.points.filter((p) => p.offsetH != null);
-  const res = { at: Date.now() };
-  for (const [k, pts] of Object.entries(dirs)) {
+  const cad = cadenceOf(dest);
+  const prev = prevFile?.drive;
+  let asked = 0;
+  const live = keptLive(prev, cad, Date.now());
+  const res = live || { at: Date.now() };
+  for (const [k, pts] of Object.entries(live ? {} : dirs)) {
     res[k] = await ttRoute(pts, null, timed);
+    asked++;
     console.log(`drive ${k}: ${res[k].km} km, legs ${pts.map((p) => p.id).join(' > ')}: ${res[k].legs.map((l) => `${l.km}km/${l.min}min`).join(', ')}; reaches ${timed.map((p, i) => `${p.id} ${res[k].stops[i] == null ? '?' : Math.round(res[k].stops[i] / 60)}min`).join(', ')}`);
   }
-  const prev = prevFile?.drive;
   const h0 = Math.ceil(Date.now() / 36e5) * 36e5;
   // Fills `into` for the given hour offsets; a failure throws and leaves the hours fetched so far in place.
-  const forecast = async (into, offsets) => {
+  // Hours in `kept` (see keptHours in ./lib.mjs) are taken from the last forecast instead of being fetched.
+  const forecast = async (into, offsets, kept = new Map()) => {
     for (const i of offsets) {
+      const old = kept.get(h0 + i * 36e5);
       for (const [k, pts] of Object.entries(dirs)) {
+        if (old) { into[k].push(old[k]); continue; }
         const r = await ttRoute(pts, h0 + i * 36e5, timed);
-        into[k].push({ ms: h0 + i * 36e5, sec: r.sec, noTrafficSec: r.noTrafficSec, stops: r.stops });
+        asked++;
+        into[k].push({ ms: h0 + i * 36e5, sec: r.sec, noTrafficSec: r.noTrafficSec, stops: r.stops, at: Date.now() });
       }
     }
   };
@@ -259,7 +272,7 @@ async function drive(dest, prevFile) {
   } else {
     const hourly = { out: [], back: [] };
     try {
-      await forecast(hourly, Array.from({ length: 24 }, (_, i) => i));
+      await forecast(hourly, Array.from({ length: 24 }, (_, i) => i), keptHours(prev?.hourly, prev?.hourlyAt, h0, Date.now(), cad));
       res.hourly = hourly;
       res.hourlyAt = Date.now();
     } catch (e) {
@@ -302,6 +315,7 @@ async function drive(dest, prevFile) {
     }
   }
   if (errors.length) res.hourlyError = errors.join('; ').slice(0, 200);
+  console.log(`drive ${dest.id}: ${asked} TomTom requests on this run`);
   return res;
 }
 
@@ -316,7 +330,7 @@ for (const dest of DESTINATIONS) {
   const [ch, cm, cl, inc, al] = await Promise.all([
     source(status, 'chain', () => chain(f), [], prev),
     source(status, 'cams', () => cams(f), [], prev),
-    source(status, 'closures', () => closures(f, dest.route.highway), [], prev),
+    source(status, 'closures', () => closures(f, dest.route), [], prev),
     source(status, 'incidents', () => incidents(f, dest.route), [], prev),
     source(status, 'alerts', () => alerts(pts.filter((p) => f.alertPoints.includes(p.id))), [], prev),
   ]);

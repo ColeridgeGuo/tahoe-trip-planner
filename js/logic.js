@@ -205,15 +205,47 @@ export function chainFor(data, highway, dir) {
   return { rows, max, active: rows.filter((c) => c.level > 0) };
 }
 
-export const isRamp = (c) => /ramp|connector/i.test(c.facility || '');
+// The roads a trip is checked on: the route's main highway, plus any other it uses on the way (`route.also`,
+// e.g. CA-267 from Truckee to Northstar), each with its own direction of travel there and back. A road with
+// `lonMax` is left at that longitude: whatever lies further east on it is past the turn-off.
+export function roadsOf(route) {
+  return [{ highway: route.highway, label: route.label, outboundDir: route.outboundDir, returnDir: route.returnDir, lonMax: route.lonMax }, ...(route.also || [])];
+}
+// Which of the route's roads a record (chain checkpoint, closure, incident) is on. Records saved before
+// roads were told apart carry no `hw` and belong to the main highway.
+const roadOf = (route, rec) => { const rs = roadsOf(route); return rs.find((x) => x.highway === (rec.hw ?? route.highway)) || rs[0]; };
+// Is this record on the trip in the given direction ('out' / 'back')? It has to face the way the trip
+// travels on its road, and not lie past the point where the trip leaves that road.
+export function onTrip(route, direction) {
+  return (rec) => {
+    const road = roadOf(route, rec);
+    if (road.lonMax != null && rec.lon != null && rec.lon > road.lonMax) return false;
+    return inDir(rec.dir, direction === 'out' ? road.outboundDir : road.returnDir);
+  };
+}
+// Chain control on every road of the trip, in the direction travelled on each.
+export function chainOn(data, route, direction) {
+  const on = onTrip(route, direction);
+  const hws = roadsOf(route).map((x) => x.highway);
+  const rows = data.chain.filter((c) => hws.includes(c.hw) && on(c));
+  const max = rows.reduce((m, c) => Math.max(m, c.level), -1);
+  return { rows, max, active: rows.filter((c) => c.level > 0) };
+}
+
+// Not the road itself: ramps and connectors, and the rest areas and side streets Caltrans lists under the
+// same route (I-80 has "Rest Area / Full" records all winter: the Donner Summit rest areas, not the freeway).
+export const isRamp = (c) => /ramp|connector|rest area|surface street/i.test(c.facility || '');
 export const isFull = (c) => /full/i.test(c.type) && !isRamp(c);
 // Closures and incidents carry a direction of travel ('East', 'West', 'East / West'). A record with no
 // direction, or one that is not stated, counts for both ways.
 export const inDir = (recDir, dir) => !dir || !recDir || recDir === 'N/A' || recDir.includes(dir);
+// `dir` is a direction name ('East'), or a test such as onTrip() gives for a route with more than one road.
+const facing = (dir) => (typeof dir === 'function' ? dir : (rec) => inDir(rec.dir, dir));
 export function closuresDuring(data, fromMs, toMs, dir) {
-  return data.closures.filter((c) => !isRamp(c) && inDir(c.dir, dir) && c.start < toMs && (c.end == null || c.end > fromMs));
+  const on = facing(dir);
+  return data.closures.filter((c) => !isRamp(c) && on(c) && c.start < toMs && (c.end == null || c.end > fromMs));
 }
-export const incidentsFor = (data, dir) => data.incidents.filter((x) => inDir(x.dir, dir));
+export const incidentsFor = (data, dir) => data.incidents.filter(facing(dir));
 
 export function evaluate(data, dest, opts) {
   const { departMs, direction, vehicle, nowMs = Date.now() } = opts;
@@ -232,7 +264,7 @@ export function evaluate(data, dest, opts) {
   // 1. Chain control (live)
   if (!src('chain')) factors.push({ key: 'chain', level: 'caution', msg: 'srcFailed' });
   else {
-    const c = chainFor(data, r.highway, dir);
+    const c = chainOn(data, r, direction);
     const cv = chainVerdict(c.max, vehicle);
     add('chain', { key: 'chain', level: live ? cv.level : 'info', msg: cv.msg, v: c, live });
   }
@@ -240,7 +272,7 @@ export function evaluate(data, dest, opts) {
   // 2. Closures (scheduled + active lane closures), in the direction of travel
   if (!src('closures')) factors.push({ key: 'closures', level: 'caution', msg: 'srcFailed' });
   else {
-    const cl = closuresDuring(data, departMs, endMs, dir);
+    const cl = closuresDuring(data, departMs, endMs, onTrip(r, direction));
     const full = cl.filter(isFull);
     const delay = Math.max(0, ...cl.map((c) => c.delayMin));
     const level = full.length ? 'nogo' : cl.length && delay >= 15 ? 'caution' : 'ok';
@@ -250,7 +282,7 @@ export function evaluate(data, dest, opts) {
   // 3. CHP incidents (live only), in the direction of travel
   if (!src('incidents')) factors.push({ key: 'incidents', level: 'caution', msg: 'srcFailed' });
   else {
-    const all = incidentsFor(data, dir);
+    const all = incidentsFor(data, onTrip(r, direction));
     const serious = all.filter((x) => /collision|closure|sigalert|fatal|spin/i.test(x.type));
     const level = live && serious.length ? 'caution' : live ? 'ok' : 'info';
     add('incidents', { key: 'incidents', level, msg: all.length ? 'incSome' : 'incNone', v: { all, serious }, live });

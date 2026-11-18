@@ -13,9 +13,10 @@ export const stopIdx = (id) => timed.findIndex((p) => p.id === id);
 export const hourIdx = (ms) => Math.round((ms - T0) / H);
 
 const quiet = { temp: 5, feels: 3, wind: 8, gust: 15, pop: 0, sky: 20, qpf: 0, snow: 0, snowLevel: 2500 };
-export function makeData(over = {}) {
+// `forRoute` builds the file for another destination's route (default: the first, Heavenly).
+export function makeData(over = {}, forRoute = route) {
   const weather = {};
-  for (const p of route.points) {
+  for (const p of forRoute.points) {
     weather[p.id] = { at: NOW, elevM: 1000 };
     for (const [k, v] of Object.entries(quiet)) weather[p.id][k] = new Array(168).fill(v);
   }

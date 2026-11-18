@@ -260,7 +260,7 @@ function drawMap() {
   const css = getComputedStyle(document.documentElement);
   const col = (lv) => css.getPropertyValue(lv >= 3 ? '--nogo' : lv >= 1 ? '--caution' : '--ok').trim();
   const r = dest().route;
-  const dir = S.direction === 'out' ? r.outboundDir : r.returnDir;
+  const on = L.onTrip(r, S.direction); // on one of the trip's roads, facing the way it travels there
   const pop = (title, lines) => `<b>${esc(title)}</b>${lines.filter(Boolean).map((x) => `<br>${x}`).join('')}`;
   const mark = (lat, lon, cls, label, html, z = 0) => LF.marker([lat, lon], { icon: LF.divIcon({ className: `mk ${cls}`, html: label, iconSize: null }), zIndexOffset: z }).bindPopup(html, { maxWidth: 260 }).addTo(g);
 
@@ -269,7 +269,7 @@ function drawMap() {
 
   // Chain control: colour the stretch from each active checkpoint to the next one in the direction of travel.
   const nearest = (lat, lon) => { let b = 0, bd = Infinity; route.forEach(([a, o], i) => { const d = (a - lat) ** 2 + ((o - lon) * 0.78) ** 2; if (d < bd) { bd = d; b = i; } }); return b; };
-  const cps = L.chainFor(S.data, r.highway, dir).rows.map((c) => ({ ...c, i: nearest(c.lat, c.lon) })).sort((a, b) => (S.direction === 'out' ? a.i - b.i : b.i - a.i));
+  const cps = L.chainOn(S.data, r, S.direction).rows.map((c) => ({ ...c, i: nearest(c.lat, c.lon) })).sort((a, b) => (S.direction === 'out' ? a.i - b.i : b.i - a.i));
   cps.forEach((c, k) => {
     const next = cps[k + 1];
     if (c.level > 0 && next && next.i !== c.i) LF.polyline(route.slice(Math.min(c.i, next.i), Math.max(c.i, next.i) + 1), { color: col(c.level), weight: 7, opacity: 0.95 }).addTo(g);
@@ -280,8 +280,8 @@ function drawMap() {
     mark(c.lat, c.lon, `mk-cc ${c.level >= 3 ? 'nogo' : c.level > 0 ? 'caution' : 'ok'} ${c.level > 0 ? 'big' : ''}`, label,
       pop(name, [c.level > 0 ? esc(c.desc) : t('mapNone'), `<span class="muted">${c.elevFt ? fElev(c.elevFt / 3.28084) + ' · ' : ''}${esc(c.at)}</span>`]), c.level > 0 ? 500 : 0);
   }
-  if (S.mapShow.inc) for (const x of L.incidentsFor(S.data, dir)) mark(x.lat, x.lon, `mk-inc ${/collision|closure|sigalert|fatal|spin/i.test(x.type) ? 'caution' : ''}`, '!', pop(x.type, [esc(x.loc), x.time ? `<span class="muted">${fTime(x.time)} · ${esc(x.area)}</span>` : '', ...x.details.map(esc)]), 300);
-  if (S.mapShow.clos) for (const k of S.data.closures) if (k.lat && !L.isRamp(k) && L.inDir(k.dir, dir)) mark(k.lat, k.lon, `mk-cl ${L.isFull(k) ? 'nogo' : ''}`, '', pop(`${k.from} → ${k.to}`, [esc(`${k.type} · ${k.work}`), `<span class="muted">${fWhen(k.start)} ${t('until')} ${k.end ? fWhen(k.end) : t('indefinite')}</span>`]), 100);
+  if (S.mapShow.inc) for (const x of L.incidentsFor(S.data, on)) mark(x.lat, x.lon, `mk-inc ${/collision|closure|sigalert|fatal|spin/i.test(x.type) ? 'caution' : ''}`, '!', pop(x.type, [esc(x.loc), x.time ? `<span class="muted">${fTime(x.time)} · ${esc(x.area)}</span>` : '', ...x.details.map(esc)]), 300);
+  if (S.mapShow.clos) for (const k of S.data.closures) if (k.lat && !L.isRamp(k) && on(k)) mark(k.lat, k.lon, `mk-cl ${L.isFull(k) ? 'nogo' : ''}`, '', pop(`${k.from} → ${k.to}`, [esc(`${k.type} · ${k.work}`), `<span class="muted">${fWhen(k.start)} ${t('until')} ${k.end ? fWhen(k.end) : t('indefinite')}</span>`]), 100);
   if (S.mapShow.cams) S.data.cams.forEach((c) => mark(c.lat, c.lon, 'mk-cam', '', `<b>${esc(c.name)}</b><img class="popcam" alt="" src="${esc(c.img)}?t=${Math.floor(Date.now() / 3e5)}">`, 50));
 }
 // Background refreshes must not reload live streams or steal focus from the list input.
@@ -301,7 +301,9 @@ function factorText(f) {
     case 'chain': {
       if (!v) return t('m.' + f.msg);
       const top = v.rows.filter((r) => r.level === v.max);
-      return t('m.' + f.msg, { hw, n: v.max, where: esc(where(top)) }) + (f.live ? '' : ` <span class="muted">(${t('refOnly')})</span>`);
+      // Name the road the strictest checkpoint is on (CA-267 rather than I-80 on the way to Northstar).
+      const road = top.length && L.roadsOf(d.route).find((x) => x.highway === top[0].hw);
+      return t('m.' + f.msg, { hw: road?.label || hw, n: v.max, where: esc(where(top)) }) + (f.live ? '' : ` <span class="muted">(${t('refOnly')})</span>`);
     }
     case 'closures':
       if (!v) return t('m.' + f.msg);
@@ -315,14 +317,14 @@ function factorText(f) {
       if (!Array.isArray(v) || !v.length) return t('m.' + f.msg);
       return v.map((a) => `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(alertName(a.event))}</a> <span class="muted">${fWhen(a.onset)} – ${fWhen(a.ends)}</span>`).join('<br>');
     case 'wind': return t('m.' + f.msg, { v: fWind(v) });
-    case 'lift': return t('m.' + f.msg, { v: fWind(v.gust), day: fDay(v.day) });
+    case 'lift': return t('m.' + f.msg, { v: fWind(v.gust), day: fDay(v.day), lifts: nm(d.resort.windLifts) });
     case 'drive': {
       if (!v) return t('m.' + f.msg, { v: fDur(d.route.driveHours * 3600) });
       const dm = v.deltaMin;
       const cmp = dm == null ? '' : Math.abs(dm) < 5 ? t(v.vs === 'usual' ? 'm.driveSame' : 'm.driveFree') : t(`m.drive${dm > 0 ? 'More' : 'Less'}${v.vs === 'usual' ? 'Usual' : 'Free'}`, { d: Math.abs(dm) });
       return t('m.' + f.msg, { v: fDur(v.sec) }) + cmp;
     }
-    case 'ev': return t('m.' + f.msg, { v: fT(v) });
+    case 'ev': return t('m.' + f.msg, { v: fT(v), climb: nm(d.route.climb) });
     case 'fresh': return t('m.' + f.msg, { v: fAgo(Date.now() - v * 6e4).replace(/前$| ago$/, '') });
     default: return '';
   }
@@ -349,7 +351,7 @@ function viewVerdict() {
   const sel = pickedHour();
   const busy = alerts.status() === 'busy';
   const alertRow = plan || sel ? `<div class="alertrow">
-    ${plan ? `<span class="tag ok">${t('al.on', { when: fWhen(plan.departMs) })}</span><button class="ghost" data-act="alertOff" ${busy ? 'disabled' : ''}>${t('al.off')}</button>` : ''}
+    ${plan ? `<span class="tag ok">${plan.dest && plan.dest !== d.id ? esc(nm((DESTINATIONS.find((x) => x.id === plan.dest) || d).name)) + ' · ' : ''}${t('al.on', { when: fWhen(plan.departMs) })}</span><button class="ghost" data-act="alertOff" ${busy ? 'disabled' : ''}>${t('al.off')}</button>` : ''}
     ${sel && plan?.departMs !== sel.ms ? `<button class="ghost" data-act="alertOn" ${busy ? 'disabled' : ''}>${t(plan ? 'al.move' : 'al.remind')}</button>` : ''}
     ${busy ? `<span class="muted">${t('al.saving')}</span>` : S.alertErr ? `<span class="tag bad">${t('al.failed')}</span>` : ''}</div>` : '';
 
@@ -447,13 +449,15 @@ function viewRoads() {
   const d = dest();
   const r = d.route;
   const dir = S.direction === 'out' ? r.outboundDir : r.returnDir;
-  const c = L.chainFor(S.data, r.highway, dir);
+  const on = L.onTrip(r, S.direction);
+  const roads = L.roadsOf(r);
+  const c = L.chainOn(S.data, r, S.direction);
   const dirLabel = t(dir === 'East' ? 'east' : 'west');
   const dirSeg = `<div class="controls">${seg('direction', S.direction, [['out', `${t('out')} · ${t(r.outboundDir === 'East' ? 'east' : 'west')}`], ['back', `${t('back')} · ${t(r.returnDir === 'East' ? 'east' : 'west')}`]])}</div>`;
   const lay = (k, label) => `<button data-act="mapLayer" data-v="${k}" class="${S.mapShow[k] ? 'on' : ''}" aria-pressed="${S.mapShow[k]}">${label}</button>`;
   const mapHtml = `<div class="chips">${TOMTOM_WEB_KEY ? lay('traffic', t('mapTraffic')) : ''}${lay('inc', t('mapInc'))}${lay('clos', t('mapClos'))}${lay('cams', t('mapCams'))}</div><div id="map"></div>
     <div class="legend"><span><i class="lg ok"></i>${t('mapNone')}</span><span><i class="lg caution"></i>R1 / R2</span><span><i class="lg nogo"></i>${t('mapClosed')}</span></div>${S.mapShow.traffic && TOMTOM_WEB_KEY ? `<p class="note">${t('mapTrafficNote')}</p>` : ''}<p class="note">${t('mapNote')}</p>`;
-  const chain = `<ul class="rows">${c.rows.map((x) => `<li>${rBadge(x.level, x.status)}<div><b>${esc(x.name.replace(/\s*\((unselect|holding)[^)]*\)/i, ''))}</b><small>${x.elevFt ? fElev(x.elevFt / 3.28084) + ' · ' : ''}${esc(x.at)}</small>${x.level !== 0 ? `<p>${esc(x.desc)}</p>` : ''}</div></li>`).join('') || `<li class="muted">${t('noData')}</li>`}</ul>`;
+  const chain = `<ul class="rows">${c.rows.map((x) => `<li>${rBadge(x.level, x.status)}<div><b>${x.hw !== r.highway ? esc(roads.find((k) => k.highway === x.hw)?.label || x.hw) + ' · ' : ''}${esc(x.name.replace(/\s*\((unselect|holding)[^)]*\)/i, ''))}</b><small>${x.elevFt ? fElev(x.elevFt / 3.28084) + ' · ' : ''}${esc(x.at)}</small>${x.level !== 0 ? `<p>${esc(x.desc)}</p>` : ''}</div></li>`).join('') || `<li class="muted">${t('noData')}</li>`}</ul>`;
 
   const alts = `<ul class="rows">${r.alternates.map((a) => {
     const x = L.chainFor(S.data, a.highway, dir);
@@ -464,14 +468,14 @@ function viewRoads() {
   const now = Date.now();
   const clRow = (k) => `<li><span class="badge ${L.isFull(k) ? 'nogo' : k.start <= now ? 'caution' : 'na'}">${k.start <= now ? t('activeNow') : t('upcoming')}</span><div><b>${esc(k.from)} → ${esc(k.to)}</b>
     <small>${esc(k.facility)} · ${esc(k.type)} · ${esc(k.work)} · ${esc(k.dir)}</small><small>${fWhen(k.start)} ${t('until')} ${k.end ? fWhen(k.end) : t('indefinite')}${k.delayMin ? ' · ' + t('delay', { d: k.delayMin }) : ''}${k.total ? ' · ' + t('lanesOf', { a: k.lanes, b: k.total }) : ''}</small></div></li>`;
-  const closDir = S.data.closures.filter((k) => L.inDir(k.dir, dir));
+  const closDir = S.data.closures.filter(on);
   const soon = closDir.filter((k) => !L.isRamp(k) && k.start < now + 48 * 36e5);
   const later = closDir.filter((k) => L.isRamp(k) || k.start >= now + 48 * 36e5);
   const clos = closDir.length
     ? `<ul class="rows">${soon.map(clRow).join('') || `<li class="muted">${t('closNone48')}</li>`}</ul>${later.length ? `<details><summary>${t('closMore', { n: later.length })}</summary><ul class="rows">${later.map(clRow).join('')}</ul></details>` : ''}`
     : `<p class="muted">${t('closNone')}</p>`;
 
-  const incDir = L.incidentsFor(S.data, dir);
+  const incDir = L.incidentsFor(S.data, on);
   const inc = incDir.length
     ? `<ul class="rows">${incDir.map((x) => `<li><span class="badge ${/collision|closure|sigalert|fatal|spin/i.test(x.type) ? 'caution' : 'na'}">${x.time ? fTime(x.time) : ''}</span><div><b>${esc(x.type)}</b><small>${esc(x.loc)}${x.desc ? ' · ' + esc(x.desc) : ''} · ${esc(x.area)}</small>${x.details.length ? `<p>${x.details.map(esc).join('<br>')}</p>` : ''}</div></li>`).join('')}</ul>`
     : `<p class="muted">${t('incNoneShort')}</p>`;
@@ -481,7 +485,7 @@ function viewRoads() {
 
   // A failed source shows how old its carried-over data is, or "failed" when there is none.
   const st = (k) => { const s = S.data.status[k]; return s?.ok === false ? `<span class="tag bad">${s.dataAt ? t('srcStaleTag', { v: fAgo(s.dataAt) }) : t('loadFail')}</span>` : ''; };
-  return dirSeg + card('map', `${r.label} ${t('mapTitle')}`, mapHtml) + card('chain', `${r.label} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? liveTag(S.chainLiveAt) : fAgo(S.data.generatedAt)}</span>${st('chain')}`) +
+  return dirSeg + card('map', `${r.label} ${t('mapTitle')}`, mapHtml) + card('chain', `${roads.map((k) => k.label).join(' + ')} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? liveTag(S.chainLiveAt) : fAgo(S.data.generatedAt)}</span>${st('chain')}`) +
     card('alts', t('altTitle'), alts) + card('inc', t('incTitle'), inc, st('incidents')) + card('clos', t('closTitle'), clos, st('closures')) + card('cams', t('camTitle'), cams, st('cams')) + `<p class="note pad0">${t('srcTextNote')} · ${t('chainDir', { dir: dirLabel })}</p>`;
 }
 
@@ -510,7 +514,7 @@ function viewResort() {
   const outlook = `<div class="tablewrap"><table class="daily"><thead><tr><th>${t('day')}</th><th class="wide">${t('fresh')}</th><th>${t('ratio')}</th><th>${t('gust')}</th><th>${t('liftRisk')}</th></tr></thead><tbody>${days.map((x) => `<tr class="${best && best.fresh >= 75 && x.day === best.day ? 'best' : ''}">
     <th>${fDay(x.day)}${best && best.fresh >= 75 && x.day === best.day ? `<small class="star">★ ${t('bestDay')}</small>` : ''}</th>
     <td class="wide"><div class="bar"><i style="width:${Math.round((x.fresh / maxF) * 100)}%"></i><span>${x.fresh >= 1 ? fSnow(x.fresh) : '–'}</span></div>${x.overnight >= 5 ? `<small>${t('overnight')} ${fSnow(x.overnight)}</small>` : ''}</td>
-    <td>${x.ratio ? Math.round(x.ratio) + ':1' : '–'}</td><td>${fWind(x.gust)}</td><td>${x.lift ? `<span class="badge ${x.lift.level === 'high' ? 'nogo' : x.lift.level === 'mod' ? 'caution' : 'ok'}">${t(x.lift.level)}</span>` : '–'}</td></tr>`).join('')}</tbody></table></div><p class="note">${t('liftNote')}</p>`;
+    <td>${x.ratio ? Math.round(x.ratio) + ':1' : '–'}</td><td>${fWind(x.gust)}</td><td>${x.lift ? `<span class="badge ${x.lift.level === 'high' ? 'nogo' : x.lift.level === 'mod' ? 'caution' : 'ok'}">${t(x.lift.level)}</span>` : '–'}</td></tr>`).join('')}</tbody></table></div><p class="note">${t('liftNote', { dest: esc(nm(d.name)) })}</p>`;
 
   const cams = `<div class="rcams">${d.resort.cams.map((c, i) => `<figure>${S.camsLoaded.has(i)
     ? `<iframe src="${esc(c.embed)}" title="${esc(nm(c.name))}" allow="autoplay; fullscreen" allowfullscreen loading="lazy"></iframe>`
