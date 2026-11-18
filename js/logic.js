@@ -597,3 +597,14 @@ export function foodStops(data, dest, places, departMs, direction, hours = dest.
     return { place: p, at: x.at, ms: x.ms, open: openAt(p.hours, x.ms), leg: x.leg };
   }).sort((x, y) => x.at - y.at);
 }
+
+// ---------- TomTom allowance ----------
+// How much of the month's free TomTom requests is used, from the count the fetch script publishes
+// (`data.tomtom`). lv 1: close to the allowance, lv 2: past it. `from` is set only when the count began
+// part-way through the month, so the figure is lower than what TomTom has really served.
+export const QUOTA_WARN = 0.8;
+export function quotaState(tt) {
+  if (!tt?.quota || tt.monthN == null) return null;
+  const pct = tt.monthN / tt.quota;
+  return { n: tt.monthN, quota: tt.quota, pct, lv: pct >= 1 ? 2 : pct >= QUOTA_WARN ? 1 : 0, month: tt.month, from: tt.from && !tt.from.endsWith('-01') ? tt.from : null };
+}

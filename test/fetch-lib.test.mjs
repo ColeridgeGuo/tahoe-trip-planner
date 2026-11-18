@@ -252,12 +252,12 @@ describe('TomTom requests used today', () => {
   const at = (h) => Date.UTC(2026, 0, 13, h);
   test('adds up over the runs of a UTC day', () => {
     const a = quotaUsed(null, 50, at(1));
-    assert.deepEqual(a, { day: '2026-01-13', n: 50, month: '2026-01', monthN: 50 });
-    assert.deepEqual(quotaUsed(a, 2, at(2)), { day: '2026-01-13', n: 52, month: '2026-01', monthN: 52 });
+    assert.deepEqual(a, { day: '2026-01-13', n: 50, month: '2026-01', monthN: 50, from: '2026-01-13', quota: MONTHLY_QUOTA });
+    assert.deepEqual(quotaUsed(a, 2, at(2)), { day: '2026-01-13', n: 52, month: '2026-01', monthN: 52, from: '2026-01-13', quota: MONTHLY_QUOTA });
   });
   test('a new day starts from zero and keeps the total of the day before', () => {
     const b = quotaUsed({ day: '2026-01-13', n: 1640 }, 2, at(24));
-    assert.deepEqual(b, { day: '2026-01-14', n: 2, month: '2026-01', monthN: 2, prev: { day: '2026-01-13', n: 1640 } });
+    assert.deepEqual(b, { day: '2026-01-14', n: 2, month: '2026-01', monthN: 2, from: '2026-01-14', quota: MONTHLY_QUOTA, prev: { day: '2026-01-13', n: 1640 } });
     assert.deepEqual(quotaUsed(b, 2, at(25)).prev, { day: '2026-01-13', n: 1640 });
   });
 });
@@ -270,9 +270,16 @@ describe('TomTom quota: the month', () => {
     assert.deepEqual([q.day, q.n, q.month, q.monthN], ['2026-01-31', 500, '2026-01', 1000]);
     q = quotaUsed(q, 7, Date.UTC(2026, 1, 1));
     assert.deepEqual([q.day, q.n, q.month, q.monthN], ['2026-02-01', 7, '2026-02', 7]);
+    assert.equal(q.from, '2026-02-01'); // a month that turned over while counting is counted whole
   });
   test('a count saved before the month was tracked starts the month from this run', () => {
-    assert.deepEqual(quotaUsed({ day: '2026-01-13', n: 900 }, 4, at(13, 5)), { day: '2026-01-13', n: 904, month: '2026-01', monthN: 4 });
+    assert.deepEqual(quotaUsed({ day: '2026-01-13', n: 900 }, 4, at(13, 5)), { day: '2026-01-13', n: 904, month: '2026-01', monthN: 4, from: '2026-01-13', quota: MONTHLY_QUOTA });
+  });
+  test('the day the count began is kept through the month; a count published before it was recorded began on 2026-11-18', () => {
+    let q = quotaUsed(null, 5, at(13));
+    q = quotaUsed(q, 5, at(20));
+    assert.equal(q.from, '2026-01-13');
+    assert.equal(quotaUsed({ day: '2026-11-19', n: 3, month: '2026-11', monthN: 180 }, 2, Date.UTC(2026, 10, 19, 3)).from, '2026-11-18');
   });
 });
 
