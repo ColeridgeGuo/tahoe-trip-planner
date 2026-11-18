@@ -23,6 +23,7 @@ export const TH = {
   packTemp: 1,
   staleMin: 120,
   liveHorizonH: 6, // live road status only decides trips starting this soon
+  closureMarginMin: 30, // a closure counts if it is in force within this long of when the drive passes it
 };
 
 export function index(data) {
@@ -151,6 +152,14 @@ function stamp(f, at, nowMs) {
   return f;
 }
 
+// What an NWS alert means for the drive, by its event name. Only alerts about the road count: snow, ice, wind
+// strong enough to matter on the pass, fog, flooding. The rest (Lake Wind Advisory, which is for boats on the
+// lake and is out most winter weeks, Freeze Warning, watches, statements) are still listed but leave the
+// verdict alone.
+const ALERT_NOGO = /blizzard|ice storm|avalanche warning/i;
+const ALERT_ROAD = /winter storm warning|winter weather advisory|snow squall|freezing (rain|fog|drizzle)|^high wind warning|^wind advisory|dense fog advisory|flash flood warning|^flood warning/i;
+export const alertLevel = (event) => (ALERT_NOGO.test(event) ? 'nogo' : ALERT_ROAD.test(event) ? 'caution' : 'ok');
+
 // Forecast-only factors for a given departure. Used for the verdict and the hour-by-hour strip.
 export function forecastFactors(data, dest, departMs, direction, hours = dest.route.driveHours, nowMs = Date.now(), stopSec = null) {
   const r = dest.route;
@@ -196,11 +205,7 @@ export function forecastFactors(data, dest, departMs, direction, hours = dest.ro
   // NWS alerts overlapping the drive.
   const endMs = departMs + hours * 36e5;
   const active = data.alerts.filter((a) => a.onset < endMs && a.ends > departMs);
-  let aLevel = 'ok';
-  for (const a of active) {
-    if (/blizzard|ice storm|avalanche warning/i.test(a.event)) aLevel = worst(aLevel, 'nogo');
-    else if (/warning|advisory/i.test(a.event)) aLevel = worst(aLevel, 'caution');
-  }
+  const aLevel = active.reduce((l, a) => worst(l, alertLevel(a.event)), 'ok');
   factors.push({ key: 'alerts', level: active.length ? aLevel : 'ok', msg: active.length ? 'alertsActive' : 'alertsNone', v: active });
 
   const gust = Math.max(0, ...mtn.map((s) => s.gust ?? 0));
@@ -215,7 +220,9 @@ export function forecastFactors(data, dest, departMs, direction, hours = dest.ro
 
 // What a given chain level means for this vehicle.
 export function chainVerdict(level, v) {
-  if (level <= 0) return { level: 'ok', msg: 'chainNone' };
+  // Unknown: the feed gave no usable reading (see chainFor). That is not the same as "no chain control".
+  if (level < 0) return { level: 'caution', msg: 'chainUnknown' };
+  if (level === 0) return { level: 'ok', msg: 'chainNone' };
   if (level >= 4) return { level: 'nogo', msg: 'chainClosed' };
   if (level === 3) return { level: 'nogo', msg: 'chainR3' };
   const awdOk = v.drive === 'awd' && v.snowTires;
@@ -228,10 +235,23 @@ export function chainVerdict(level, v) {
   return v.chains ? { level: 'caution', msg: 'chainInstall' } : { level: 'nogo', msg: 'chainNeedChains' };
 }
 
-export function chainFor(data, highway, dir) {
-  const rows = data.chain.filter((c) => c.hw === highway && (!c.dir || c.dir === dir));
-  const max = rows.reduce((m, c) => Math.max(m, c.level), -1);
-  return { rows, max, active: rows.filter((c) => c.level > 0) };
+// Chain control on one highway in one direction, optionally only the checkpoints inside `box`
+// ({ latMin, latMax, lonMin, lonMax }, any of them). `max` is the strictest level, or -1 when it cannot be
+// told: no checkpoint came back at all, or none shows a restriction but some carry a status that is not an
+// R level or a closure (`unknown`, e.g. traffic being held). A restriction that is known always wins.
+const inBox = (c, b) => !b || ((b.latMin == null || c.lat >= b.latMin) && (b.latMax == null || c.lat <= b.latMax) && (b.lonMin == null || c.lon >= b.lonMin) && (b.lonMax == null || c.lon <= b.lonMax));
+export function chainFor(data, highway, dir, box) {
+  const rows = data.chain.filter((c) => c.hw === highway && (!c.dir || c.dir === dir) && inBox(c, box));
+  const unknown = rows.filter((c) => c.level < 0);
+  const top = rows.reduce((m, c) => Math.max(m, c.level), -1);
+  return { rows, max: top <= 0 && unknown.length ? -1 : top, active: rows.filter((c) => c.level > 0), unknown };
+}
+// Chain control along an alternate route: every leg of it (`alt.legs`: highway, direction each way, and the
+// stretch that is actually driven), so a pass that is open does not hide a closed road further on.
+export function altChain(data, alt, direction) {
+  const parts = alt.legs.map((l) => chainFor(data, l.highway, direction === 'out' ? l.out : l.back, l.box));
+  const top = Math.max(...parts.map((p) => p.max));
+  return { rows: parts.flatMap((p) => p.rows), max: top <= 0 && parts.some((p) => p.max < 0) ? -1 : top, active: parts.flatMap((p) => p.active), unknown: parts.flatMap((p) => p.unknown) };
 }
 
 export const isRamp = (c) => /ramp|connector/i.test(c.facility || '');
@@ -241,6 +261,24 @@ export const isFull = (c) => /full/i.test(c.type) && !isRamp(c);
 export const inDir = (recDir, dir) => !dir || !recDir || recDir === 'N/A' || recDir.includes(dir);
 export function closuresDuring(data, fromMs, toMs, dir) {
   return data.closures.filter((c) => !isRamp(c) && inDir(c.dir, dir) && c.start < toMs && (c.end == null || c.end > fromMs));
+}
+// The closures in force when the drive gets to them, not at any time during the whole drive: a night closure
+// near Kyburz that starts three hours after you have passed it does not count. `stops` is alongRoute() for
+// this departure. Each closure is timed at both of its ends and counts if it is in force between those two
+// moments, give or take TH.closureMarginMin (a stop for food, slower traffic). One without a position is
+// checked against the whole drive, as before.
+export function closuresOnDrive(data, dest, stops, direction, dir) {
+  const r = dest.route;
+  const pass = passOf(r, stops, direction);
+  const margin = TH.closureMarginMin * 6e4;
+  const here = (lat, lon) => (Number.isFinite(lat) && Number.isFinite(lon) && (lat || lon) ? timeAt(r, pass, direction, { lat, lon }).ms : null);
+  return data.closures.filter((c) => {
+    if (isRamp(c) || !inDir(c.dir, dir)) return false;
+    const a = here(c.lat, c.lon);
+    const b = here(c.endLat, c.endLon) ?? a;
+    const [from, to] = a == null ? [stops[0].ms, stops[stops.length - 1].ms] : [Math.min(a, b) - margin, Math.max(a, b) + margin];
+    return c.start < to && (c.end == null || c.end > from);
+  });
 }
 export const isSerious = (x) => /collision|closure|sigalert|fatal|spin/i.test(x.type);
 // East of where the mountain road begins (route.mountainLonMin). A record without a position counts.
@@ -256,6 +294,7 @@ export function evaluate(data, dest, opts) {
   const live = departMs - nowMs <= TH.liveHorizonH * 36e5;
   const st = data.status || {};
   const factors = [];
+  const fc = forecastFactors(data, dest, departMs, direction, dt.hours, nowMs, dt.stops);
   // A source that failed on the last refresh either has nothing (unconfirmed), or still carries its last good
   // data: that is judged as usual, tagged with its age, and no better than caution once it is too old.
   const src = (k) => st[k]?.ok !== false || st[k].dataAt != null;
@@ -266,13 +305,13 @@ export function evaluate(data, dest, opts) {
   else {
     const c = chainFor(data, r.highway, dir);
     const cv = chainVerdict(c.max, vehicle);
-    add('chain', { key: 'chain', level: live ? cv.level : 'info', msg: cv.msg, v: c, live });
+    add('chain', { key: 'chain', level: live ? cv.level : 'info', msg: c.max < 0 && !c.rows.length ? 'chainNoRows' : cv.msg, v: c, live });
   }
 
   // 2. Closures (scheduled + active lane closures), in the direction of travel
   if (!src('closures')) factors.push({ key: 'closures', level: 'caution', msg: 'srcFailed' });
   else {
-    const cl = closuresDuring(data, departMs, endMs, dir);
+    const cl = closuresOnDrive(data, dest, fc.stops, direction, dir);
     const full = cl.filter(isFull);
     const delay = Math.max(0, ...cl.map((c) => c.delayMin));
     const level = full.length ? 'nogo' : cl.length && delay >= 15 ? 'caution' : 'ok';
@@ -292,7 +331,6 @@ export function evaluate(data, dest, opts) {
 
   // 4-6. Forecast for the drive window
   if (!src('alerts')) factors.push({ key: 'alerts', level: 'caution', msg: 'srcFailed' });
-  const fc = forecastFactors(data, dest, departMs, direction, dt.hours, nowMs, dt.stops);
   for (const f of fc.factors) {
     if (f.key !== 'alerts') factors.push(f);
     else if (src('alerts')) add('alerts', f);
@@ -510,19 +548,29 @@ export function placeOffsetH(route, place) {
   return best ? best.h : 0;
 }
 
+// The timed route points of a drive (alongRoute()) with their nominal offset in driving order, for timeAt().
+function passOf(r, stops, direction) {
+  return stops.map((x) => ({ at: offsetFor(r, x.point, direction), ms: x.ms, point: x.point }));
+}
+// When this drive is at a place (anything with lat / lon, or an explicit offsetH): its share of the leg it lies
+// on, between the times the drive reaches the route points either side. `leg` is those two points.
+function timeAt(r, pass, direction, place) {
+  const at = offsetFor(r, { offsetH: placeOffsetH(r, place) }, direction);
+  let i = pass.findIndex((x) => x.at >= at);
+  if (i <= 0) i = i === 0 ? 1 : pass.length - 1;
+  const [a, b] = [pass[i - 1], pass[i]];
+  return { at, ms: a.ms + (b.at > a.at ? (at - a.at) / (b.at - a.at) : 0) * (b.ms - a.ms), leg: [a.point, b.point] };
+}
+
 // The places on this destination's route in the order you drive past them, each with the time you would
 // reach it for this departure, whether it is open then, and the leg it is on (`leg`: the route points
 // before and after it, in driving order). Uses the drive time already on hand
 // (`hours`, `stopSec` from driveTime()), so it costs no extra lookups.
 export function foodStops(data, dest, places, departMs, direction, hours = dest.route.driveHours, stopSec = null) {
   const r = dest.route;
-  const pass = alongRoute(data, dest, departMs, direction, hours, stopSec).map((x) => ({ at: offsetFor(r, x.point, direction), ms: x.ms, point: x.point }));
+  const pass = passOf(r, alongRoute(data, dest, departMs, direction, hours, stopSec), direction);
   return places.filter((p) => !p.highway || p.highway === r.highway).map((p) => {
-    const at = offsetFor(r, { offsetH: placeOffsetH(r, p) }, direction);
-    let i = pass.findIndex((x) => x.at >= at);
-    if (i <= 0) i = i === 0 ? 1 : pass.length - 1;
-    const [a, b] = [pass[i - 1], pass[i]];
-    const ms = a.ms + (b.at > a.at ? (at - a.at) / (b.at - a.at) : 0) * (b.ms - a.ms);
-    return { place: p, at, ms, open: openAt(p.hours, ms), leg: [a.point, b.point] };
+    const x = timeAt(r, pass, direction, p);
+    return { place: p, at: x.at, ms: x.ms, open: openAt(p.hours, x.ms), leg: x.leg };
   }).sort((x, y) => x.at - y.at);
 }
