@@ -2,7 +2,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import * as L from '../js/logic.js';
-import { dest, route, H, MIN, T0, NOW, AWD, timed, stopIdx, hourIdx, makeData, fail, factor, chainRow, closure, incident, liveDrive } from './helpers.mjs';
+import { dest, route, H, MIN, T0, NOW, AWD, timed, stopIdx, hourIdx, makeData, fail, factor, chainRow, chains, closure, incident, liveDrive } from './helpers.mjs';
 
 const ev = (data, over = {}) => L.evaluate(data, dest, { departMs: NOW, direction: 'out', vehicle: AWD, nowMs: NOW, ...over });
 const LATER = NOW + 30 * H; // beyond the live horizon: live road status no longer decides
@@ -37,7 +37,8 @@ describe('chain control', () => {
   const car = (o) => ({ drive: 'fwd', snowTires: false, chains: false, ...o });
   const cases = [
     // level, vehicle, expected level, expected message
-    [-1, car(), 'ok', 'chainNone'],
+    [-1, car(), 'caution', 'chainUnknown'], // no usable reading is not "no chain control"
+    [-1, car({ drive: 'awd', snowTires: true, chains: true }), 'caution', 'chainUnknown'],
     [0, car(), 'ok', 'chainNone'],
     [1, car(), 'nogo', 'chainNeedChains'],
     [1, car({ chains: true }), 'caution', 'chainInstall'],
@@ -63,10 +64,65 @@ describe('chain control', () => {
     assert.equal(L.chainFor(data, 'US-50', 'East').max, 2);
     assert.equal(L.chainFor(data, 'US-50', 'West').max, 3);
     assert.equal(L.chainFor(makeData({ chain: [chainRow(1, '')] }), 'US-50', 'West').max, 1);
-    assert.equal(L.chainFor(makeData(), 'US-50', 'East').max, -1);
+    assert.equal(L.chainFor(makeData({ chain: [] }), 'US-50', 'East').max, -1);
+    assert.equal(L.chainFor(makeData(), 'US-50', 'East').max, 0);
+  });
+  test('a status that is not an R level or a closure: cannot confirm, never "no chain control"', () => {
+    // Caltrans holding traffic at one checkpoint while the others still read R-0.
+    const data = makeData({ chain: chains(chainRow(-1, 'East')) });
+    assert.equal(L.chainFor(data, 'US-50', 'East').max, -1);
+    assert.equal(L.chainFor(data, 'US-50', 'West').max, 0);
+    const r = ev(data);
+    assert.equal(r.level, 'caution');
+    assert.equal(factor(r, 'chain').msg, 'chainUnknown');
+    assert.deepEqual(factor(r, 'chain').v.unknown.map((c) => c.status), ['HOLDING']);
+    assert.equal(ev(data, { direction: 'back' }).level, 'go');
+    // Days ahead it is shown but, like any live reading, does not decide.
+    assert.equal(ev(data, { departMs: LATER }).level, 'go');
+    assert.equal(factor(ev(data, { departMs: LATER }), 'chain').msg, 'chainUnknown');
+  });
+  test('a restriction that is known wins over an unreadable checkpoint', () => {
+    const data = makeData({ chain: chains(chainRow(-1, 'East'), chainRow(2, 'East')) });
+    assert.equal(L.chainFor(data, 'US-50', 'East').max, 2);
+    assert.equal(factor(ev(data), 'chain').msg, 'chainR2Pass');
+  });
+  test('the feed answers but has no checkpoint for this highway and direction: cannot confirm', () => {
+    for (const chain of [[], [chainRow(0, 'West')], [chainRow(0, 'East', 'I-80')]]) {
+      const r = ev(makeData({ chain }));
+      assert.equal(r.level, 'caution');
+      assert.equal(factor(r, 'chain').msg, 'chainNoRows');
+    }
+  });
+  test('alternate routes are judged on every road they use, on the stretch that is driven', () => {
+    const [i80, sr88] = route.alternates;
+    const row = (hw, dir, level, lat, lon, name) => ({ ...chainRow(level, dir, hw), lat, lon, name });
+    const base = [
+      row('I-80', 'East', 0, 39.32, -120.33, 'Donner'), row('I-80', 'West', 0, 39.32, -120.33, 'Donner'),
+      row('SR-89', 'South', 0, 39.17, -120.14, 'Tahoe City'), row('SR-89', 'North', 0, 38.95, -120.09, 'Emerald Bay'),
+      row('SR-88', 'East', 0, 38.69, -120.07, 'Kirkwood'), row('SR-88', 'West', 0, 38.69, -120.07, 'Kirkwood'),
+      row('SR-89', 'North', 0, 38.79, -119.94, 'Luther Pass'), row('SR-89', 'South', 0, 38.79, -119.94, 'Luther Pass'),
+    ];
+    const max = (alt, direction, extra = []) => L.altChain(makeData({ chain: [...base, ...extra] }), alt, direction).max;
+    assert.equal(max(i80, 'out'), 0);
+    assert.equal(max(sr88, 'back'), 0);
+    // Emerald Bay closed southbound: I-80 itself is clear, the way on to South Lake Tahoe is not.
+    const bay = row('SR-89', 'South', 4, 38.95, -120.09, 'Emerald Bay');
+    assert.equal(max(i80, 'out', [bay]), 4);
+    assert.equal(max(i80, 'back', [bay]), 0); // the return runs northbound
+    assert.equal(max(sr88, 'out', [bay]), 0); // not on the Carson Pass route
+    assert.equal(L.altChain(makeData({ chain: [...base, bay] }), i80, 'out').active[0].name, 'Emerald Bay');
+    // Luther Pass counts for CA-88 only; Monitor Pass and CA-89 north of Truckee are on neither route.
+    assert.equal(max(sr88, 'out', [row('SR-89', 'North', 2, 38.79, -119.94, 'Luther Pass')]), 2);
+    assert.equal(max(i80, 'out', [row('SR-89', 'North', 2, 38.79, -119.94, 'Luther Pass')]), 0);
+    const off = [row('SR-89', 'East', 4, 38.66, -119.73, 'Monitor Pass'), row('SR-89', 'South', 4, 39.59, -120.37, 'Sierraville'), row('SR-88', 'East', 4, 38.81, -119.78, 'Paynesville')];
+    assert.equal(max(i80, 'out', off), 0);
+    assert.equal(max(sr88, 'out', off), 0);
+    // A leg with no checkpoints, or an unreadable one, cannot be confirmed.
+    assert.equal(L.altChain(makeData({ chain: base.filter((c) => c.hw !== 'SR-89') }), i80, 'out').max, -1);
+    assert.equal(max(i80, 'out', [row('SR-89', 'South', -1, 39.0, -120.11, "Harper's Grade")]), -1);
   });
   test('westbound R3 does not stop an eastbound trip, and stops the return', () => {
-    const data = makeData({ chain: [chainRow(3, 'West')] });
+    const data = makeData({ chain: chains(chainRow(3, 'West')) });
     assert.equal(ev(data).level, 'go');
     assert.equal(ev(data, { direction: 'back' }).level, 'nogo');
   });
@@ -112,6 +168,29 @@ describe('closures', () => {
     const data = makeData({ closures: [closure({ start: LATER, end: LATER + 3 * H })] });
     assert.equal(ev(data, { departMs: LATER }).level, 'nogo');
     assert.equal(ev(data).level, 'go');
+  });
+  test('a closure counts when the drive reaches it, not at any time during the drive', () => {
+    // Night work between Riverton and Kyburz, both directions. Outbound the drive is there about 2 h 45 min
+    // after leaving; on the way back about 45 min after leaving.
+    const at = { lat: 38.767, lon: -120.44, endLat: 38.77, endLon: -120.35, dir: 'East / West' };
+    const out = (start, end) => ev(makeData({ closures: [closure({ ...at, start: NOW + start * H, end: NOW + end * H })] })).level;
+    const back = (start, end) => ev(makeData({ closures: [closure({ ...at, start: NOW + start * H, end: NOW + end * H })] }), { direction: 'back' }).level;
+    assert.equal(out(2, 4), 'nogo'); // in force as the drive gets there
+    assert.equal(out(-5, 1.5), 'go'); // lifted more than half an hour before
+    assert.equal(out(-5, 2.5), 'nogo'); // lifted only just before: within the margin
+    assert.equal(out(3.6, 9), 'go'); // starts before arriving, but long after this stretch
+    assert.equal(back(2, 9), 'go'); // starts during the drive home, an hour after passing it
+    assert.equal(back(1, 9), 'nogo');
+    assert.equal(back(-5, 0.5), 'nogo'); // lifted only just before: within the margin
+    assert.equal(back(-5, 0.1), 'go');
+    // In Sacramento: outbound about 1 h 45 min in, so a closure over the first half hour is long gone.
+    const sac = { lat: 38.56, lon: -121.47, endLat: 38.56, endLon: -121.4 };
+    assert.equal(ev(makeData({ closures: [closure({ ...sac, start: NOW - 8 * H, end: NOW + 0.5 * H })] })).level, 'go');
+    assert.equal(ev(makeData({ closures: [closure({ ...sac, start: NOW - 8 * H, end: NOW + 1.5 * H })] })).level, 'nogo');
+  });
+  test('a closure without a position is checked against the whole drive', () => {
+    const c = closure({ lat: 0, lon: 0, start: NOW + 3.6 * H, end: NOW + 9 * H });
+    assert.equal(ev(makeData({ closures: [c] })).level, 'nogo');
   });
   test('ramp closures are ignored', () => {
     const data = makeData({ closures: [closure({ facility: 'Off Ramp' }), closure({ facility: 'Connector' })] });
@@ -262,6 +341,12 @@ describe('weather on the mountain section', () => {
     assert.equal(alert('Winter Weather Advisory').level, 'caution');
     assert.equal(alert('Winter Storm Watch').level, 'go'); // listed, does not change the verdict
     assert.equal(factor(alert('Winter Storm Watch'), 'alerts').msg, 'alertsActive');
+    // Only alerts about the road count. The rest are listed and leave the verdict alone.
+    for (const e of ['High Wind Warning', 'Wind Advisory', 'Dense Fog Advisory', 'Snow Squall Warning', 'Freezing Fog Advisory', 'Flash Flood Warning']) assert.equal(alert(e).level, 'caution', e);
+    for (const e of ['Lake Wind Advisory', 'Freeze Warning', 'Red Flag Warning', 'Special Weather Statement', 'Avalanche Watch', 'Air Quality Alert']) {
+      assert.equal(alert(e).level, 'go', e);
+      assert.equal(factor(alert(e), 'alerts').v.length, 1, e);
+    }
     assert.equal(alert('Blizzard Warning', NOW + 5 * H).level, 'go'); // starts after arriving
     assert.equal(alert('Blizzard Warning', NOW - 9 * H, NOW - H).level, 'go'); // already over
   });

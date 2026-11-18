@@ -12,6 +12,10 @@ export const timed = route.points.filter((p) => p.offsetH != null); // the order
 export const stopIdx = (id) => timed.findIndex((p) => p.id === id);
 export const hourIdx = (ms) => Math.round((ms - T0) / H);
 
+export const chainRow = (level, dir = 'East', hw = route.highway) => ({ hw, name: `cc ${hw} ${dir}`, dir, level, status: level === 4 ? 'ROAD CLOSED' : level >= 0 ? `R-${level}` : 'HOLDING' });
+// What the feed shows on a clear day: a checkpoint each way reporting R-0. `chains()` adds rows to that.
+export const quietChain = () => [chainRow(0, 'East'), chainRow(0, 'West')];
+export const chains = (...rows) => [...quietChain(), ...rows];
 const quiet = { temp: 5, feels: 3, wind: 8, gust: 15, pop: 0, sky: 20, qpf: 0, snow: 0, snowLevel: 2500 };
 export function makeData(over = {}) {
   const weather = {};
@@ -21,7 +25,7 @@ export function makeData(over = {}) {
   }
   const status = {};
   for (const k of ['chain', 'cams', 'closures', 'incidents', 'alerts', 'weather']) status[k] = { ok: true, at: NOW };
-  return { generatedAt: NOW, t0: T0, hours: 168, status, chain: [], closures: [], incidents: [], alerts: [], cams: [], weather, drive: null, ...over };
+  return { generatedAt: NOW, t0: T0, hours: 168, status, chain: quietChain(), closures: [], incidents: [], alerts: [], cams: [], weather, drive: null, ...over };
 }
 // Marks a source as failed on the last refresh; with `dataAt` it still carries data fetched at that time.
 export function fail(data, key, dataAt) {
@@ -29,7 +33,7 @@ export function fail(data, key, dataAt) {
   return data;
 }
 export const factor = (ev, key) => ev.factors.find((f) => f.key === key);
-export const chainRow = (level, dir = 'East', hw = route.highway) => ({ hw, name: `cc ${hw} ${dir}`, dir, level, status: level > 0 ? `R-${level}` : '' });
+
 export const closure = (over = {}) => ({ from: 'Twin Bridges', to: 'Meyers', dir: 'East', type: 'Full', facility: 'Mainline', start: NOW - H, end: NOW + 8 * H, delayMin: 0, ...over });
 export const incident = (over = {}) => ({ id: '1', time: NOW - 10 * MIN, type: 'Traffic Collision', loc: 'Us50 E / Sly Park Rd', desc: '', dir: 'East', ...over });
 // A live TomTom reading taken just now. `stops` is in route order (west to east) for both directions.

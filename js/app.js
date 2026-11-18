@@ -350,8 +350,8 @@ function factorText(f) {
   switch (f.key) {
     case 'chain': {
       if (!v) return t('m.' + f.msg);
-      const top = v.rows.filter((r) => r.level === v.max);
-      return t('m.' + f.msg, { hw, n: v.max, where: esc(where(top)) }) + (f.live ? '' : ` <span class="muted">(${t('refOnly')})</span>`);
+      const top = v.max < 0 ? v.unknown : v.rows.filter((r) => r.level === v.max);
+      return t('m.' + f.msg, { hw, n: v.max, where: esc(where(top)), st: esc([...new Set(top.map((r) => r.status || '?'))].slice(0, 2).join(', ')) }) + (f.live ? '' : ` <span class="muted">(${t('refOnly')})</span>`);
     }
     case 'closures':
       if (!v) return t('m.' + f.msg);
@@ -364,7 +364,7 @@ function factorText(f) {
       return t('m.' + f.msg, v?.stop ? { rate: fSnow(v.rate), where: esc(nm(v.stop.point.name)) } : {});
     case 'alerts':
       if (!Array.isArray(v) || !v.length) return t('m.' + f.msg);
-      return v.map((a) => `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(alertName(a.event))}</a> <span class="muted">${fWhen(a.onset)} – ${fWhen(a.ends)}</span>`).join('<br>');
+      return v.map((a) => `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(alertName(a.event))}</a> <span class="muted">${fWhen(a.onset)} – ${fWhen(a.ends)}${L.alertLevel(a.event) === 'ok' ? ' · ' + t('m.alertInfo') : ''}</span>`).join('<br>');
     case 'wind': return t('m.' + f.msg, { v: fWind(v) });
     case 'lift': return t('m.' + f.msg, { v: fWind(v.gust), day: fDay(v.day) });
     case 'drive': {
@@ -507,9 +507,11 @@ function viewRoads() {
   const chain = `<ul class="rows">${c.rows.map((x) => `<li>${rBadge(x.level, x.status)}<div><b>${esc(x.name.replace(/\s*\((unselect|holding)[^)]*\)/i, ''))}</b><small>${x.elevFt ? fElev(x.elevFt / 3.28084) + ' · ' : ''}${esc(x.at)}</small>${x.level !== 0 ? `<p>${esc(x.desc)}</p>` : ''}</div></li>`).join('') || `<li class="muted">${t('noData')}</li>`}</ul>`;
 
   const alts = `<ul class="rows">${r.alternates.map((a) => {
-    const x = L.chainFor(S.data, a.highway, dir);
+    const x = L.altChain(S.data, a, S.direction);
     const txt = x.max < 0 ? t('altNA') : x.max === 0 ? t('altNone') : x.max >= 4 ? t('altClosed') : t('altMax', { n: x.max });
-    return `<li>${rBadge(x.max, '')}<div><b>${esc(nm(a.label))}</b><small>${txt}${x.active.length ? ' · ' + esc([...new Set(x.active.map((k) => k.name))].slice(0, 3).join(', ')) : ''}</small></div></li>`;
+    // The strictest checkpoints first, each named with its road when that is not the alternate's main highway.
+    const names = [...x.active].sort((p, q) => q.level - p.level).map((k) => (k.hw === a.highway ? '' : k.hw.replace('SR-', 'CA-') + ' ') + k.name);
+    return `<li>${rBadge(x.max, '')}<div><b>${esc(nm(a.label))}</b><small>${txt}${names.length ? ' · ' + esc([...new Set(names)].slice(0, 3).join(', ')) : ''}</small></div></li>`;
   }).join('')}</ul>`;
 
   const now = Date.now();

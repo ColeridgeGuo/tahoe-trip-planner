@@ -35,9 +35,20 @@ export const DESTINATIONS = [
       // sit on a road that is the same in both directions.
       drivePins: ['kyburz', 'pass'],
       townPoint: 'town',
+      // Each alternate is judged on every road it uses (`legs`), in the direction driven on the way out and
+      // back, and only on the stretch that is driven (`box`): I-80 then CA-89 down the west shore past
+      // Emerald Bay (Truckee to South Lake Tahoe); CA-88 to Picketts Junction then CA-89 over Luther Pass.
       alternates: [
-        { highway: 'I-80', label: { zh: 'I-80 (Donner Summit) → CA-89', en: 'I-80 (Donner Summit) → CA-89' } },
-        { highway: 'SR-88', label: { zh: 'CA-88 (Carson Pass) → CA-89', en: 'CA-88 (Carson Pass) → CA-89' } },
+        {
+          highway: 'I-80',
+          label: { zh: 'I-80 (Donner Summit) → CA-89', en: 'I-80 (Donner Summit) → CA-89' },
+          legs: [{ highway: 'I-80', out: 'East', back: 'West' }, { highway: 'SR-89', out: 'South', back: 'North', box: { latMin: 38.9, latMax: 39.33 } }],
+        },
+        {
+          highway: 'SR-88',
+          label: { zh: 'CA-88 (Carson Pass) → CA-89', en: 'CA-88 (Carson Pass) → CA-89' },
+          legs: [{ highway: 'SR-88', out: 'East', back: 'West', box: { lonMax: -119.915 } }, { highway: 'SR-89', out: 'North', back: 'South', box: { latMin: 38.77, latMax: 38.87, lonMax: -119.915 } }],
+        },
       ],
     },
     // What the fetch script pulls from Caltrans / CHP for this destination.
