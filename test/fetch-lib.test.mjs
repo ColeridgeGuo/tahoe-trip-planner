@@ -1,7 +1,7 @@
 // What the fetch script does with a failed source, and how it reads the feeds (scripts/lib.mjs).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { HOURS, MAX_CARRY_MS, carried, source, shiftWeather, carriedWeather, hourly, ptToMs, stopTimes, PAST_H, pastSnow, HISTORY_MAX, addHistory, quotaUsed, dedupe } from '../scripts/lib.mjs';
+import { HOURS, MAX_CARRY_MS, carried, source, shiftWeather, carriedWeather, hourly, ptToMs, stopTimes, PAST_H, pastSnow, HISTORY_MAX, addHistory, quotaUsed, dedupe, MONTHLY_QUOTA, LIVE_EVERY_MS, NEAR_H, MID_EVERY_MS, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours } from '../scripts/lib.mjs';
 
 const H = 36e5;
 const MIN = 6e4;
@@ -252,13 +252,89 @@ describe('TomTom requests used today', () => {
   const at = (h) => Date.UTC(2026, 0, 13, h);
   test('adds up over the runs of a UTC day', () => {
     const a = quotaUsed(null, 50, at(1));
-    assert.deepEqual(a, { day: '2026-01-13', n: 50 });
-    assert.deepEqual(quotaUsed(a, 2, at(2)), { day: '2026-01-13', n: 52 });
+    assert.deepEqual(a, { day: '2026-01-13', n: 50, month: '2026-01', monthN: 50 });
+    assert.deepEqual(quotaUsed(a, 2, at(2)), { day: '2026-01-13', n: 52, month: '2026-01', monthN: 52 });
   });
   test('a new day starts from zero and keeps the total of the day before', () => {
     const b = quotaUsed({ day: '2026-01-13', n: 1640 }, 2, at(24));
-    assert.deepEqual(b, { day: '2026-01-14', n: 2, prev: { day: '2026-01-13', n: 1640 } });
+    assert.deepEqual(b, { day: '2026-01-14', n: 2, month: '2026-01', monthN: 2, prev: { day: '2026-01-13', n: 1640 } });
     assert.deepEqual(quotaUsed(b, 2, at(25)).prev, { day: '2026-01-13', n: 1640 });
+  });
+});
+
+describe('TomTom quota: the month', () => {
+  const at = (d, h = 0) => Date.UTC(2026, 0, d, h);
+  test('the month keeps counting across days and starts again on the 1st (UTC)', () => {
+    let q = quotaUsed(null, 500, at(30));
+    q = quotaUsed(q, 500, at(31));
+    assert.deepEqual([q.day, q.n, q.month, q.monthN], ['2026-01-31', 500, '2026-01', 1000]);
+    q = quotaUsed(q, 7, Date.UTC(2026, 1, 1));
+    assert.deepEqual([q.day, q.n, q.month, q.monthN], ['2026-02-01', 7, '2026-02', 7]);
+  });
+  test('a count saved before the month was tracked starts the month from this run', () => {
+    assert.deepEqual(quotaUsed({ day: '2026-01-13', n: 900 }, 4, at(13, 5)), { day: '2026-01-13', n: 904, month: '2026-01', monthN: 4 });
+  });
+});
+
+describe('TomTom quota: how often drive times are refreshed', () => {
+  const h0 = Date.UTC(2026, 0, 13, 15);
+  const now = h0 - 20 * MIN;
+  const pt = (i, at) => ({ ms: h0 + i * H, sec: 13000, noTrafficSec: 12500, stops: [0, 1], ...(at != null ? { at } : {}) });
+  const series = (from, to, at) => { const a = []; for (let i = from; i <= to; i++) a.push(pt(i, at)); return { out: a, back: a.map((x) => ({ ...x })) }; };
+  const hours = (kept) => [...kept.keys()].map((ms) => (ms - h0) / H).sort((a, b) => a - b);
+
+  test('a day costs about 506 requests, and a 31-day month stays under 80% of the free allowance', () => {
+    const live = 2 * ((24 * H) / (Math.ceil(LIVE_EVERY_MS / (15 * MIN)) * 15 * MIN)); // a run every 15 minutes
+    const perHour = NEAR_H + Math.ceil((24 - NEAR_H) / Math.round(MID_EVERY_MS / H)); // times one hour is fetched before it passes
+    const hourly = 2 * perHour * Math.round((24 * H) / (HOURLY_EVERY_MS + 5 * MIN));
+    const long = 2 * ((LONG_TO_H - 24) / LONG_STEP_H + 1) * Math.round((24 * H) / (LONG_EVERY_MS + 5 * MIN));
+    assert.deepEqual({ live, hourly, long }, { live: 96, hourly: 240, long: 170 });
+    assert.equal(MONTHLY_QUOTA, 20000);
+    assert.ok((live + hourly + long) * 31 <= MONTHLY_QUOTA * 0.8);
+  });
+  test('live times are fetched on every other run', () => {
+    const prev = { at: now - 15 * MIN, out: { sec: 1 }, back: { sec: 2 }, hourly: {} };
+    assert.deepEqual(keptLive(prev, now), { at: prev.at, out: prev.out, back: prev.back });
+    assert.equal(keptLive({ ...prev, at: now - 30 * MIN }, now), null);
+    assert.equal(keptLive(null, now), null);
+    assert.equal(keptLive({ at: now - 15 * MIN, out: { sec: 1 } }, now), null);
+  });
+  test('the 7-day grid reaches a day past the week, so a day-old one still covers it', () => {
+    assert.ok(LONG_TO_H * H - LONG_EVERY_MS >= 167 * H);
+  });
+  test('no earlier forecast: every hour is fetched', () => {
+    assert.equal(keptHours(null, null, h0, now).size, 0);
+    assert.equal(keptHours({ out: [], back: [] }, 0, h0, now).size, 0);
+  });
+  test('an hour later: the next 3 hours and the new last hour are fetched, the rest kept', () => {
+    const prev = series(-1, 22, now - 60 * MIN); // the last refresh covered what are now hours -1..22
+    assert.deepEqual(hours(keptHours(prev, now - 60 * MIN, h0, now)), Array.from({ length: 20 }, (_, i) => i + 3));
+  });
+  test('a later hour is fetched again once it is 12 hours old', () => {
+    const prev = series(0, 23, now - 11 * H);
+    prev.out[10].at = prev.back[10].at = now - 12 * H;
+    const kept = keptHours(prev, now - H, h0, now);
+    assert.ok(!kept.has(h0 + 10 * H));
+    assert.equal(kept.size, 20);
+    assert.equal(keptHours(series(0, 23, now - 12 * H), now - H, h0, now).size, 0);
+  });
+  test('the older of the two directions decides', () => {
+    const prev = series(0, 23, now - H);
+    prev.back[12].at = now - 13 * H;
+    assert.ok(!keptHours(prev, now - H, h0, now).has(h0 + 12 * H));
+  });
+  test('points saved before each carried its own time are dated by the forecast as a whole', () => {
+    assert.equal(keptHours(series(0, 23), now - H, h0, now).size, 21);
+    assert.equal(keptHours(series(0, 23), now - 13 * H, h0, now).size, 0);
+    assert.equal(keptHours(series(0, 23), undefined, h0, now).size, 0);
+  });
+  test('an hour missing one direction, or saved without pass-through times, is fetched', () => {
+    const prev = series(0, 23, now - H);
+    prev.back.splice(8, 1);
+    delete prev.out[15].stops;
+    const kept = keptHours(prev, now - H, h0, now);
+    assert.ok(!kept.has(h0 + 8 * H) && !kept.has(h0 + 15 * H));
+    assert.equal(kept.size, 19);
   });
 });
 

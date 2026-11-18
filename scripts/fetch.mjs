@@ -3,7 +3,7 @@
 import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { DESTINATIONS } from '../js/config.js';
 import { CC_URL, normalizeChain, incidentDir } from '../js/normalize.js';
-import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes, pastSnow, addHistory, quotaUsed, dedupe } from './lib.mjs';
+import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes, pastSnow, addHistory, quotaUsed, dedupe, MONTHLY_QUOTA, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours } from './lib.mjs';
 import { chainFor } from '../js/logic.js';
 
 const UA = 'tahoe-trip-planner (personal trip dashboard, github pages)';
@@ -209,7 +209,7 @@ async function alerts(points) {
 // The key comes from the TOMTOM_KEY secret. Errors are built without the request URL so the key can never
 // end up in the published JSON or the logs.
 const TT_KEY = process.env.TOMTOM_KEY || '';
-let ttCalls = 0; // requests sent on this run, retries included: each one counts against the daily quota
+let ttCalls = 0; // requests sent on this run, retries included: each one counts against the monthly quota
 // `timed` are the route points whose pass-through time is read off the returned route (stopTimes in ./lib.mjs).
 // That needs the route's polyline and progress markers, so the response is the full route, not just a summary.
 async function ttRoute(points, departMs, timed = []) {
@@ -237,18 +237,9 @@ async function ttRoute(points, departMs, timed = []) {
   }
   throw new Error(`TomTom routing: ${last}`);
 }
-// Live drive time both ways on every run. Forecasts are refreshed far less often and otherwise carried over from
-// the previously published file, to stay well inside the free daily quota (2,500 requests):
-//   live     2 requests x 96 runs a day                       = 192
-//   hourly   next 24 h, every hour, refreshed hourly: 48 x 24 = 1,152
-//   long     hours 24-168, every 2 h, refreshed every 12 h: 146 x 2 = 292
-// About 1,640 a day for one destination. Beyond a day TomTom predicts from its historic weekly traffic
-// profiles, which do not move between runs, so a coarse grid refreshed twice a day loses nothing.
-const HOURLY_EVERY_MS = 55 * 6e4;
-const LONG_EVERY_MS = 12 * 36e5 - 5 * 6e4;
+// How often each part is refreshed, and what that costs against the free monthly quota, is set out in
+// ./lib.mjs (TomTom quota). Whatever is not due is carried over from the previously published file.
 const LONG_RETRY_MS = 60 * 6e4; // after a failed long refresh, wait this long rather than retrying every run
-const LONG_STEP_H = 2;
-const LONG_TO_H = 168;
 async function drive(dest, prevFile) {
   const pt = (id) => dest.route.points.find((p) => p.id === id);
   const way = [dest.route.points[0], ...dest.route.drivePins.map(pt), pt(dest.route.townPoint)];
@@ -256,19 +247,23 @@ async function drive(dest, prevFile) {
   // The points the page shows conditions for, in route order (west to east). Every drive time carries
   // `stops`: seconds from departure to each of them, in this order whichever way the trip goes.
   const timed = dest.route.points.filter((p) => p.offsetH != null);
-  const res = { at: Date.now() };
-  for (const [k, pts] of Object.entries(dirs)) {
+  const prev = prevFile?.drive;
+  const live = keptLive(prev, Date.now());
+  const res = live || { at: Date.now() };
+  for (const [k, pts] of Object.entries(live ? {} : dirs)) {
     res[k] = await ttRoute(pts, null, timed);
     console.log(`drive ${k}: ${res[k].km} km, legs ${pts.map((p) => p.id).join(' > ')}: ${res[k].legs.map((l) => `${l.km}km/${l.min}min`).join(', ')}; reaches ${timed.map((p, i) => `${p.id} ${res[k].stops[i] == null ? '?' : Math.round(res[k].stops[i] / 60)}min`).join(', ')}`);
   }
-  const prev = prevFile?.drive;
   const h0 = Math.ceil(Date.now() / 36e5) * 36e5;
   // Fills `into` for the given hour offsets; a failure throws and leaves the hours fetched so far in place.
-  const forecast = async (into, offsets) => {
+  // Hours in `kept` (see keptHours in ./lib.mjs) are taken from the last forecast instead of being fetched.
+  const forecast = async (into, offsets, kept = new Map()) => {
     for (const i of offsets) {
+      const old = kept.get(h0 + i * 36e5);
       for (const [k, pts] of Object.entries(dirs)) {
+        if (old) { into[k].push(old[k]); continue; }
         const r = await ttRoute(pts, h0 + i * 36e5, timed);
-        into[k].push({ ms: h0 + i * 36e5, sec: r.sec, noTrafficSec: r.noTrafficSec, stops: r.stops });
+        into[k].push({ ms: h0 + i * 36e5, sec: r.sec, noTrafficSec: r.noTrafficSec, stops: r.stops, at: Date.now() });
       }
     }
   };
@@ -281,7 +276,7 @@ async function drive(dest, prevFile) {
   } else {
     const hourly = { out: [], back: [] };
     try {
-      await forecast(hourly, Array.from({ length: 24 }, (_, i) => i));
+      await forecast(hourly, Array.from({ length: 24 }, (_, i) => i), keptHours(prev?.hourly, prev?.hourlyAt, h0, Date.now()));
       res.hourly = hourly;
       res.hourlyAt = Date.now();
     } catch (e) {
@@ -295,8 +290,10 @@ async function drive(dest, prevFile) {
   }
   // Days 2-7 on a coarser grid. The page joins this onto the end of the hourly series.
   // The hold-off after a failed refresh (longTriedAt) applies whether or not the saved forecast has per-point times.
+  // A saved forecast that no longer reaches the end of the week the page shows is refreshed early.
   const holdOff = Date.now() - (prev?.longTriedAt || 0) < LONG_RETRY_MS;
-  if (prev?.long && (holdOff || (timedIn(prev.long) && Date.now() - prev.longAt < LONG_EVERY_MS))) {
+  const reaches = (prev?.long?.out?.at(-1)?.ms || 0) >= Date.now() + 167 * 36e5;
+  if (prev?.long && (holdOff || (timedIn(prev.long) && reaches && Date.now() - prev.longAt < LONG_EVERY_MS))) {
     res.longAt = prev.longAt;
     res.long = prev.long;
     if (holdOff) res.longTriedAt = prev.longTriedAt;
@@ -376,15 +373,16 @@ for (const dest of DESTINATIONS) {
     const lv = (dir) => { const m = status.chain.ok ? chainFor(out, dest.route.highway, dir).max : -1; return m < 0 ? null : m; };
     const now0 = (field) => mtn.map((id) => weather[id]?.[field]?.[0] ?? null);
     // The live drive time each way and the part of it on the mountain section: every leg but the long one
-    // that starts or ends at the origin. Only from a reading taken on this run, not one carried over.
+    // that starts or ends at the origin. Only from a reading taken in this hour: not one carried over after a
+    // failure, nor a live reading from before the hour that is being reused because a new one is not due yet.
     const mtnMin = (x, out) => (out ? x.legs.slice(1) : x.legs.slice(0, -1)).reduce((s, l) => s + l.min, 0);
-    const live = dr && status.drive.ok ? { d: [dr.out.sec, dr.back.sec], m: [mtnMin(dr.out, true), mtnMin(dr.back, false)] } : {};
+    const live = dr && status.drive.ok && dr.at >= t0 ? { d: [dr.out.sec, dr.back.sec], m: [mtnMin(dr.out, true), mtnMin(dr.back, false)] } : {};
     history = addHistory(history, { t: t0, e: lv(dest.route.outboundDir), w: lv(dest.route.returnDir), s: now0('snow'), c: now0('temp'), ...live }, mtn);
     await writeFile(new URL('../data/history.json', import.meta.url), JSON.stringify(history));
   }
   await writeFile(new URL(`../data/${dest.id}.json`, import.meta.url), JSON.stringify(out));
   console.log(dest.id, Object.entries(status).map(([k, v]) => `${k}:${v.ok ? 'ok' : 'FAIL'}`).join(' '),
     `chain=${ch.length} cams=${cm.length} closures=${cl.length} incidents=${inc.length} alerts=${al.length} weather=${Object.keys(weather).length}`,
-    tomtom ? `tomtom: ${ttCalls} requests this run, ${tomtom.n} today (${tomtom.day} UTC)${tomtom.prev ? `, ${tomtom.prev.n} on ${tomtom.prev.day}` : ''}` : '',
+    tomtom ? `tomtom: ${ttCalls} requests this run, ${tomtom.n} today (${tomtom.day} UTC), ${tomtom.monthN} of ${MONTHLY_QUOTA} in ${tomtom.month}${tomtom.prev ? `, ${tomtom.prev.n} on ${tomtom.prev.day}` : ''}` : '',
     dr ? `drive: out ${Math.round(dr.out.sec / 60)}min back ${Math.round(dr.back.sec / 60)}min hourly=${dr.hourly.out.length} (${Math.round((Date.now() - dr.hourlyAt) / 6e4)}min old) long=${dr.long?.out.length ?? 0} (${Math.round((Date.now() - (dr.longAt || 0)) / 6e4)}min old)` : TT_KEY ? 'drive: FAILED' : 'drive: no TOMTOM_KEY');
 }
