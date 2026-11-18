@@ -11,6 +11,7 @@ const ls = {
 let items = [];
 try { items = JSON.parse(ls.get(K.list) || '[]'); } catch { items = []; }
 let status = ls.get(K.token) ? 'busy' : 'off';
+let lastError = ''; // why the last sync failed: 'GitHub 401', or the browser's network error text
 let onChange = () => {};
 let timer = null;
 
@@ -21,6 +22,7 @@ export const list = {
   subscribe(fn) { onChange = fn; },
   status: () => status,
   hasToken: () => !!ls.get(K.token),
+  error: () => lastError,
   visible: () => items.filter((i) => !i.del).sort((a, b) => a.done - b.done || a.created - b.created),
   add(text) {
     text = text.trim();
@@ -95,9 +97,11 @@ async function sync() {
     if (!id) id = (await gh('/gists', { method: 'POST', body })).id;
     else if (JSON.stringify(remote) !== JSON.stringify(items)) await gh(`/gists/${id}`, { method: 'PATCH', body });
     ls.set(K.gist, id);
+    lastError = '';
     setStatus('ok');
   } catch (e) {
     console.warn('sync', e);
+    lastError = String(e.message || e).slice(0, 80);
     setStatus('err');
   }
 }
