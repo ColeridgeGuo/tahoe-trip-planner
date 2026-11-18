@@ -272,9 +272,12 @@ async function drive(dest, prevFile) {
     }
   }
   // Days 2-7 on a coarser grid. The page joins this onto the end of the hourly series.
-  if (timedIn(prev?.long) && Date.now() - prev.longAt < LONG_EVERY_MS) {
+  // The hold-off after a failed refresh (longTriedAt) applies whether or not the saved forecast has per-point times.
+  const holdOff = Date.now() - (prev?.longTriedAt || 0) < LONG_RETRY_MS;
+  if (prev?.long && (holdOff || (timedIn(prev.long) && Date.now() - prev.longAt < LONG_EVERY_MS))) {
     res.longAt = prev.longAt;
     res.long = prev.long;
+    if (holdOff) res.longTriedAt = prev.longTriedAt;
   } else if (errors.length) {
     // TomTom is already failing on this run; do not spend more requests on it.
     res.long = prev?.long || { out: [], back: [] };
@@ -295,6 +298,7 @@ async function drive(dest, prevFile) {
       const end = (x) => x?.out?.at(-1)?.ms || 0;
       res.long = end(prev?.long) >= end(long) ? prev?.long || long : { out: long.out.slice(0, long.back.length), back: long.back };
       res.longAt = Date.now() - LONG_EVERY_MS + LONG_RETRY_MS;
+      res.longTriedAt = Date.now();
     }
   }
   if (errors.length) res.hourlyError = errors.join('; ').slice(0, 200);
