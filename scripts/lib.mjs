@@ -115,14 +115,18 @@ export function keptHours(prev, prevAt, h0, nowMs) {
   return kept;
 }
 // Requests sent so far today and this month, carried from run to run, and yesterday's total once the day
-// turns. Days and months are UTC. The month's count starts when this was first deployed, so the first
-// month reads low.
+// turns. Days and months are UTC. `from` is the day the month's count began: the 1st when the month turned
+// over while counting, otherwise the day counting started, and then the month reads low (the page says so).
+// `quota` is published with the count so the page and the alerts can tell how close the allowance is.
+// Only requests sent by this script are counted; TomTom's own dashboard is the reference.
+const MONTH_COUNT_BEGAN = '2026-11-18'; // for a count saved before `from` was recorded
 export function quotaUsed(prev, calls, nowMs = Date.now()) {
   const day = new Date(nowMs).toISOString().slice(0, 10);
   const month = day.slice(0, 7);
-  const monthN = (prev?.month === month ? prev.monthN : 0) + calls;
-  if (prev?.day === day) return { ...prev, n: prev.n + calls, month, monthN };
-  return { day, n: calls, month, monthN, ...(prev?.day ? { prev: { day: prev.day, n: prev.n } } : {}) };
+  const same = prev?.month === month;
+  const m = { month, monthN: (same ? prev.monthN : 0) + calls, from: same ? prev.from ?? MONTH_COUNT_BEGAN : prev?.month ? `${month}-01` : day, quota: MONTHLY_QUOTA };
+  if (prev?.day === day) return { ...prev, n: prev.n + calls, ...m };
+  return { day, n: calls, ...m, ...(prev?.day ? { prev: { day: prev.day, n: prev.n } } : {}) };
 }
 
 // ---------- Caltrans ----------

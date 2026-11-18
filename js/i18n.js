@@ -92,8 +92,10 @@ export const STR = {
       nPartial: '（{list}这次没更新，结论沿用上次的。）', src: { chain: '链条管制', closures: '封路', incidents: 'CHP 事故', alerts: 'NWS 预警', weather: '天气预报' },
       nSumEve: '明天出发，目前：{level}；{hw}链条管制：{chain}。', nSumPre: '快出发了，目前：{level}；{hw}链条管制：{chain}。',
       wdTitle: 'Tahoe Trip Planner · 定时刷新停了', wdBody: '线上数据已经 {v}没有更新，刚才自动补抓了一次。请检查外部 cron-job 和它用的 GitHub 令牌是否还有效；恢复之前每小时会补抓一次。',
+      qTitle: 'Tahoe Trip Planner · TomTom 额度', qWarn: '本月 TomTom 请求已用 {n} / {q} 次（{p}%），快到免费额度上限。', qOver: '本月 TomTom 请求已用 {n} / {q} 次，超过了免费额度，车程可能停止更新或开始计费。', qRef: '实际用量以 TomTom 后台为准。',
       chainNone: '无', chainClosed: '关闭', chainNA: '无法确认',
     },
+    quota: { used: 'TomTom 本月已用 {n} / {q} 次（{p}%）', from: '自 {d} 起计', ref: '以 TomTom 后台为准', hide: '知道了' },
     dest: '目的地', refresh: '刷新', dataAt: '数据', chainLive: '链条', ago: '{v}前', min: '分钟', hr: '小时', justNow: '刚刚', loading: '加载中…', loadFail: '数据加载失败', srcStaleTag: '沿用 {v}的数据', offline: '离线 · 显示的是{when}的数据（{ago}）', srcs: '数据来源：Caltrans、CHP、NWS、TomTom。估算仅供参考，上路前以官方信息为准。',
   },
   en: {
@@ -189,8 +191,10 @@ export const STR = {
       nPartial: '({list} did not update this time; the verdict is the last one.)', src: { chain: 'chain control', closures: 'closures', incidents: 'CHP incidents', alerts: 'NWS alerts', weather: 'the forecast' },
       nSumEve: 'Leaving tomorrow. Now: {level}; {hw} chain control: {chain}.', nSumPre: 'Leaving soon. Now: {level}; {hw} chain control: {chain}.',
       wdTitle: 'Tahoe Trip Planner · scheduled refresh stopped', wdBody: 'The published data had not been updated for {v}, so one refresh was just run as a fallback. Check the external cron-job and the GitHub token it uses; until it is back the data refreshes once an hour.',
+      qTitle: 'Tahoe Trip Planner · TomTom allowance', qWarn: '{n} of {q} TomTom requests used this month ({p}%), close to the free allowance.', qOver: '{n} of {q} TomTom requests used this month, past the free allowance. Drive times may stop updating or start being billed.', qRef: 'The TomTom dashboard has the real figure.',
       chainNone: 'none', chainClosed: 'closed', chainNA: 'cannot confirm',
     },
+    quota: { used: 'TomTom this month: {n} / {q} requests ({p}%)', from: 'counted from {d}', ref: 'the TomTom dashboard is the reference', hide: 'OK' },
     dest: 'Destination', refresh: 'Refresh', dataAt: 'Data', chainLive: 'Chains', ago: '{v} ago', min: 'min', hr: 'h', justNow: 'just now', loading: 'Loading…', loadFail: 'Could not load data', srcStaleTag: 'Data from {v}', offline: 'Offline · showing data from {when} ({ago})', srcs: 'Sources: Caltrans, CHP, NWS, TomTom. Estimates are guidance only; trust official information before you drive.',
   },
 };

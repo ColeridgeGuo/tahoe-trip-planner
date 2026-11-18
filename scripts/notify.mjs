@@ -6,7 +6,7 @@ import { writeFile, readFile } from 'node:fs/promises';
 import { createECDH, createCipheriv, createPrivateKey, createHash, hkdfSync, randomBytes, sign } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { DESTINATIONS, DEFAULT_VEHICLE } from '../js/config.js';
-import { evaluate, chainFor, LV, hourOf } from '../js/logic.js';
+import { evaluate, chainFor, LV, hourOf, quotaState } from '../js/logic.js';
 import { makeT } from '../js/i18n.js';
 
 const FILE = 'tahoe-trip-alerts.json';
@@ -122,6 +122,16 @@ export function watchdogNote(wd, ageMin, lang, nowMs = Date.now()) {
   return { title: t('al.wdTitle'), body: t('al.wdBody', { v: ageMin >= 120 ? `${Math.round(ageMin / 60)} ${t('hr')}` : `${Math.round(ageMin)} ${t('min')}` }) };
 }
 
+// The month's free TomTom requests are nearly used up (80%), or used up. Said once per level in a month;
+// `told` is the month and level last said.
+export function quotaNote(told, tt, lang) {
+  const q = quotaState(tt);
+  if (!q?.lv || (told?.month === q.month && told.lv >= q.lv)) return null;
+  const t = makeT(lang);
+  const v = { n: q.n.toLocaleString('en-US'), q: q.quota.toLocaleString('en-US'), p: Math.floor(q.pct * 100) };
+  return { title: t('al.qTitle'), body: t(q.lv === 2 ? 'al.qOver' : 'al.qWarn', v) + t('al.qRef'), told: { month: q.month, lv: q.lv } };
+}
+
 // ---------- Web Push (RFC 8291 message encryption, RFC 8292 VAPID) ----------
 export function encrypt(plaintext, p256dh, auth, { salt = randomBytes(16), ecdh } = {}) {
   if (!ecdh) { ecdh = createECDH('prime256v1'); ecdh.generateKeys(); }
@@ -232,6 +242,13 @@ async function main() {
     if (note && (process.env.ALERT_DRY || (subs.length && (await send({ ...note, tag: 'refresh-stopped' }))))) next._wd = { at: now };
     console.log(`alerts: watchdog run, published data was ${process.env.WATCHDOG_AGE_MIN} min old${note ? '' : ', already reported in the last day'}`);
   } else if (state._wd && process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch') next._wd = state._wd;
+  // TomTom allowance: goes to every registered device whether or not a departure is being watched.
+  if (state._tt) next._tt = state._tt;
+  const tt = await readFile(new URL(`../data/${DESTINATIONS[0].id}.json`, import.meta.url), 'utf8').then((s) => JSON.parse(s).tomtom, () => null);
+  const qn = quotaNote(state._tt, tt, lang);
+  if (qn && process.env.ALERT_DRY) console.log(`--- ${qn.title}\n${qn.body}\n---`);
+  if (qn && (process.env.ALERT_DRY || (subs.length && (await send({ title: qn.title, body: qn.body, tag: 'tomtom-quota' }))))) next._tt = qn.told;
+  if (qn) console.log(`alerts: TomTom ${tt.monthN} of ${tt.quota} requests used in ${tt.month}`);
   for (const plan of plans) {
     const dest = DESTINATIONS.find((d) => d.id === plan.dest) || DESTINATIONS[0];
     const key = createHash('sha256').update(`${cfg.vapid?.publicKey}|${dest.id}|${plan.direction}|${plan.departMs}`).digest('hex').slice(0, 16);
