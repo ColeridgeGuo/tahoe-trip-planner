@@ -528,9 +528,9 @@ function viewRoads() {
 
   // A failed source shows how old its carried-over data is, or "failed" when there is none.
   const st = (k) => { const s = S.data.status[k]; return s?.ok === false ? `<span class="tag bad">${s.dataAt ? t('srcStaleTag', { v: fAgo(s.dataAt) }) : t('loadFail')}</span>` : ''; };
-  // By how much each one can change the trip: what can stop you, then where it is, then the ways round, then the nice-to-haves.
-  return dirSeg + card('chain', `${r.label} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? liveTag(S.chainLiveAt) : fAgo(S.data.generatedAt)}</span>${st('chain')}`) +
-    card('map', `${r.label} ${t('mapTitle')}`, mapHtml) + card('inc', t('incTitle'), inc, st('incidents')) + card('clos', t('closTitle'), clos, st('closures')) +
+  // The map as the overview, then by how much each one can change the trip: what can stop you, the ways round, the nice-to-haves.
+  return dirSeg + card('map', `${r.label} ${t('mapTitle')}`, mapHtml) +
+    card('chain', `${r.label} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? liveTag(S.chainLiveAt) : fAgo(S.data.generatedAt)}</span>${st('chain')}`) + card('inc', t('incTitle'), inc, st('incidents')) + card('clos', t('closTitle'), clos, st('closures')) +
     card('alts', t('altTitle'), alts) + card('cams', t('camTitle'), cams, st('cams')) + foodCard + `<p class="note pad0">${t('srcTextNote')} · ${t('chainDir', { dir: dirLabel })}</p>`;
 }
 
