@@ -217,6 +217,7 @@ footer{max-width:60rem;margin:auto;padding:0.25rem 1.25rem 1rem;font-size:0.7188
 .mk-inc{width:1.15rem;height:1.15rem;margin:-0.575rem 0 0 -0.575rem;border-radius:0.3rem}
 .mk-cl{border-radius:0.15rem;background:var(--caution)}
 .mk-food{background:#d9662b;width:1.15rem;height:1.15rem;margin:-1.39rem 0 0 -0.575rem;border-radius:50% 50% 50% 0;transform:rotate(-45deg)}
+.card h3.leg{margin:0.75rem 0 0;padding-top:0.5rem;border-top:1px solid var(--line)}.card h3.leg:first-of-type{border-top:0}
 .mk-cam{background:var(--accent);width:0.65rem;height:0.65rem;margin:-0.325rem 0 0 -0.325rem}
 #map.leaflet-container{font:inherit;background:var(--soft)}
 #map.leaflet-container a{color:var(--accent)}

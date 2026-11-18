@@ -501,8 +501,19 @@ function viewRoads() {
 
   // Places to eat, in the order this direction passes them, timed for the departure picked on the first tab.
   const stops = foodNow();
-  const food = `<ul class="rows">${stops.map((x) => `<li><span class="badge ${foodCls(x.open)}">${fTime(x.ms)}</span><div><b><a href="${esc(foodUrl(x.place))}" target="_blank" rel="noopener">${esc(x.place.name)}</a></b>
-    <small>${esc([x.place.town, x.place.cuisine && nm(x.place.cuisine)].filter(Boolean).join(' · '))}</small><small>${foodOpenText(x.open)}</small>${x.place.note ? `<p>${esc(nm(x.place.note))}</p>` : ''}</div></li>`).join('')}</ul><p class="note">${t('food.note')}</p>`;
+  // With a long list: a heading per leg of the drive, and a switch to hide what will be shut on arrival.
+  const many = stops.length > 6;
+  const shown = many && S.foodOpenOnly ? stops.filter((x) => ['open', 'closing'].includes(x.open.state)) : stops;
+  const legs = [];
+  for (const x of shown) {
+    const k = x.leg.map((p) => p.id).join('>');
+    if (legs.at(-1)?.k !== k) legs.push({ k, title: x.leg.map((p) => nm(p.name)).join(' → '), rows: [] });
+    legs.at(-1).rows.push(x);
+  }
+  const foodRows = (rows) => `<ul class="rows">${rows.map((x) => `<li><span class="badge ${foodCls(x.open)}">${fTime(x.ms)}</span><div><b><a href="${esc(foodUrl(x.place))}" target="_blank" rel="noopener">${esc(x.place.name)}</a></b>
+    <small>${esc([x.place.town, x.place.cuisine && nm(x.place.cuisine)].filter(Boolean).join(' · '))}</small><small>${foodOpenText(x.open)}</small>${x.place.note ? `<p>${esc(nm(x.place.note))}</p>` : ''}</div></li>`).join('')}</ul>`;
+  const food = (many ? `<div class="chips"><button data-act="foodOpen" class="${S.foodOpenOnly ? 'on' : ''}" aria-pressed="${!!S.foodOpenOnly}">${t('food.openOnly')}</button></div>` : '') +
+    (shown.length ? (many ? legs.map((g) => `<h3 class="leg">${esc(g.title)} · ${g.rows.length}</h3>${foodRows(g.rows)}`).join('') : foodRows(shown)) : `<p class="muted">${t('food.noneOpen')}</p>`) + `<p class="note">${t('food.note')}</p>`;
   const foodCard = stops.length ? card('food', t('food.title'), food, `<span class="tag">${S.depart === 'now' ? t('food.fromNow') : t('food.from', { when: fWhen(departMs()) })}</span>`) : '';
 
   // A failed source shows how old its carried-over data is, or "failed" when there is none.
@@ -620,6 +631,7 @@ document.addEventListener('click', (e) => {
     case 'settings': t = makeT(S.lang); return openSettings();
     case 'cam': return openCam(+v);
     case 'rcam': S.camsLoaded.add(+v); break;
+    case 'foodOpen': S.foodOpenOnly = !S.foodOpenOnly; break;
     case 'mapLayer': S.mapShow[v] = !S.mapShow[v]; store.set('mapShow', S.mapShow); break;
     case 'fold': {
       const sec = b.closest('.card');

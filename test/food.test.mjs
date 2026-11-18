@@ -58,6 +58,12 @@ describe('stops for a departure', () => {
     assert.deepEqual(run('out').map((x) => x.place.id), ['a', 'b']);
     assert.deepEqual(run('back').map((x) => x.place.id), ['b', 'a']);
   });
+  test('each stop names the leg it is on, in driving order', () => {
+    const mid = { id: 'm', name: 'M', highway: 'US-50', lat: 38.75, lon: -120.55 };
+    const leg = (dir) => L.foodStops(makeData(), dest, [mid], NOW, dir)[0].leg.map((p) => p.id);
+    assert.deepEqual(leg('out'), ['placerville', 'kyburz']);
+    assert.deepEqual(leg('back'), ['kyburz', 'placerville']);
+  });
   test('arrival follows the fixed offsets when there is no drive time', () => {
     const [a] = run('out');
     assert.ok(Math.abs(a.ms - (NOW + pt('placerville').offsetH * H)) < MIN);

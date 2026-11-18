@@ -511,17 +511,18 @@ export function placeOffsetH(route, place) {
 }
 
 // The places on this destination's route in the order you drive past them, each with the time you would
-// reach it for this departure and whether it is open then. Uses the drive time already on hand
+// reach it for this departure, whether it is open then, and the leg it is on (`leg`: the route points
+// before and after it, in driving order). Uses the drive time already on hand
 // (`hours`, `stopSec` from driveTime()), so it costs no extra lookups.
 export function foodStops(data, dest, places, departMs, direction, hours = dest.route.driveHours, stopSec = null) {
   const r = dest.route;
-  const pass = alongRoute(data, dest, departMs, direction, hours, stopSec).map((x) => ({ at: offsetFor(r, x.point, direction), ms: x.ms }));
+  const pass = alongRoute(data, dest, departMs, direction, hours, stopSec).map((x) => ({ at: offsetFor(r, x.point, direction), ms: x.ms, point: x.point }));
   return places.filter((p) => !p.highway || p.highway === r.highway).map((p) => {
     const at = offsetFor(r, { offsetH: placeOffsetH(r, p) }, direction);
     let i = pass.findIndex((x) => x.at >= at);
     if (i <= 0) i = i === 0 ? 1 : pass.length - 1;
     const [a, b] = [pass[i - 1], pass[i]];
     const ms = a.ms + (b.at > a.at ? (at - a.at) / (b.at - a.at) : 0) * (b.ms - a.ms);
-    return { place: p, at, ms, open: openAt(p.hours, ms) };
+    return { place: p, at, ms, open: openAt(p.hours, ms), leg: [a.point, b.point] };
   }).sort((x, y) => x.at - y.at);
 }
