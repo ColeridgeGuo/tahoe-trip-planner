@@ -1,0 +1,108 @@
+// Change alerts: when a push notification is sent for the departure being watched (scripts/notify.mjs).
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import { planState, decide } from '../scripts/notify.mjs';
+import { dest, H, MIN, NOW, AWD, makeData, fail, chainRow, closure, liveDrive } from './helpers.mjs';
+
+const plan = (over = {}) => ({ dest: dest.id, direction: 'out', departMs: NOW + 3 * H, setAt: NOW - 10 * MIN, ...over });
+const state = (data, p = plan()) => planState(data, dest, p, AWD, NOW);
+const told = (over = {}) => ({ level: 'go', chain: 0, drive: false, ...over });
+const cur = (over = {}) => ({ level: 'go', chain: 0, drive: false, why: [], ...over });
+const say = (t, c, p = plan(), lang = 'zh') => decide(t, c, p, dest, lang, NOW);
+
+describe('the state of a watched departure', () => {
+  test('quiet: go, no reason given', () => {
+    assert.deepEqual(state(makeData({ chain: [chainRow(0)] })), { level: 'go', drive: false, chain: 0, why: [] });
+  });
+  test('names what makes it worse than go', () => {
+    const s = state(makeData({ chain: [chainRow(2)], closures: [closure({ end: NOW + 12 * H })] }));
+    assert.equal(s.level, 'nogo');
+    assert.equal(s.chain, 2);
+    assert.deepEqual(s.why, ['closures']); // only the worst factors, not the R2 caution
+  });
+  test('chain control is read for the direction of the trip', () => {
+    const data = makeData({ chain: [chainRow(2, 'West'), chainRow(0, 'East')] });
+    assert.equal(state(data).chain, 0);
+    assert.equal(state(data, plan({ direction: 'back' })).chain, 2);
+  });
+  test('says whether a TomTom time went into the verdict', () => {
+    assert.equal(state(makeData({ drive: liveDrive() }), plan({ departMs: NOW + 10 * MIN })).drive, true);
+    assert.equal(state(makeData()).drive, false);
+  });
+  for (const key of ['chain', 'closures', 'incidents', 'alerts', 'weather']) {
+    test(`${key} failed on this run: no state, so no notification about a gap in the data`, () => {
+      assert.equal(state(fail(makeData(), key)), null);
+      assert.equal(state(fail(makeData(), key, NOW - 20 * MIN)), null); // even with carried-over data
+    });
+  }
+  test('a failed camera feed or TomTom does not hold alerts back', () => {
+    assert.notEqual(state(fail(fail(makeData(), 'cams'), 'drive')), null);
+  });
+});
+
+describe('whether to notify', () => {
+  test('nothing changed: silence', () => {
+    assert.equal(say(told(), cur()), null);
+    assert.equal(say(told({ level: 'caution', chain: 1 }), cur({ level: 'caution', chain: 1, why: ['chain'] })), null);
+  });
+  test('first check of a departure just set: confirms the alert is on and records the state', () => {
+    const m = say(undefined, cur({ level: 'caution', chain: 1, why: ['chain'] }));
+    assert.ok(m.title && m.body);
+    assert.ok(!m.silent);
+    assert.ok(m.body.includes('R1'));
+    assert.deepEqual(m.told, { level: 'caution', chain: 1, drive: false });
+  });
+  test('no record of a departure set hours ago: take the state quietly, do not announce it again', () => {
+    const m = say(undefined, cur(), plan({ setAt: NOW - 3 * H - MIN }));
+    assert.equal(m.silent, true);
+    assert.equal(m.title, undefined);
+    assert.deepEqual(m.told, { level: 'go', chain: 0, drive: false });
+  });
+  test('the verdict changed, either way', () => {
+    const worse = say(told(), cur({ level: 'nogo', why: ['closures'] }));
+    assert.equal(worse.told.level, 'nogo');
+    assert.ok(worse.body.length > 0);
+    assert.equal(say(told({ level: 'nogo' }), cur()).told.level, 'go');
+  });
+  test('the chain level changed for a trip within 24 hours', () => {
+    const m = say(told(), cur({ chain: 2 }));
+    assert.ok(m.body.includes('R2'));
+    assert.equal(m.told.chain, 2);
+    assert.equal(say(told({ chain: 2 }), cur({ chain: 0 })).told.chain, 0); // lifted
+  });
+  test('a chain change for a trip further away is not sent, and not forgotten', () => {
+    const far = plan({ departMs: NOW + 24 * H + MIN });
+    assert.equal(say(told(), cur({ chain: 2 }), far), null);
+    // If the verdict changes meanwhile, the chain level last told stays, so it is still reported once the trip is near.
+    const m = say(told(), cur({ level: 'caution', chain: 2, why: ['snow'] }), far);
+    assert.equal(m.told.chain, 0);
+    assert.ok(!m.body.includes('R2'));
+    assert.ok(say(m.told, cur({ level: 'caution', chain: 2, why: ['snow'] }), plan({ departMs: NOW + 23 * H })).body.includes('R2'));
+  });
+  test('both changed: one notification with both', () => {
+    const m = say(told(), cur({ level: 'caution', chain: 1, why: ['chain'] }));
+    assert.equal(m.body.split('\n').length, 3); // verdict, chain, reason
+    assert.deepEqual(m.told, { level: 'caution', chain: 1, drive: false });
+  });
+  test('TomTom dropped out: an apparent improvement is held back until drive times return', () => {
+    const before = told({ level: 'caution', drive: true });
+    assert.equal(say(before, cur({ level: 'go', drive: false })), null);
+    const back = say(before, cur({ level: 'go', drive: true }));
+    assert.deepEqual(back.told, { level: 'go', chain: 0, drive: true });
+  });
+  test('TomTom dropped out: getting worse is still sent', () => {
+    const m = say(told({ level: 'caution', drive: true }), cur({ level: 'nogo', drive: false, why: ['closures'] }));
+    assert.deepEqual(m.told, { level: 'nogo', chain: 0, drive: false });
+  });
+  test('held-back improvement does not block a chain change', () => {
+    const m = say(told({ level: 'caution', chain: 1, drive: true }), cur({ level: 'go', chain: 2, drive: false }));
+    assert.deepEqual(m.told, { level: 'caution', chain: 2, drive: true });
+  });
+  test('English and Chinese both produce a message', () => {
+    for (const lang of ['zh', 'en']) {
+      const m = say(told(), cur({ level: 'nogo', chain: 4, why: ['closures', 'chain'] }), plan({ direction: 'back' }), lang);
+      assert.ok(m.title.length > 0 && m.body.length > 0, lang);
+      assert.ok(!/undefined|\{\w+\}/.test(m.title + m.body), lang); // every placeholder filled, every key found
+    }
+  });
+});

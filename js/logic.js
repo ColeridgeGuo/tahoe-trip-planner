@@ -38,6 +38,8 @@ export function offsetFor(route, point, direction) {
   return direction === 'out' ? point.offsetH : route.driveHours - point.offsetH;
 }
 
+// Where a drive time carries `stops` (seconds from departure to each timed route point, in route order, from
+// TomTom), it is passed on so alongRoute() can use the real pass-through times.
 // How long the drive takes for a given departure: live TomTom time if leaving about now, otherwise the
 // forecast (hourly for the next day, then a coarser grid out to 7 days), otherwise the route's fixed estimate.
 const DRIVE_GAP_MS = 3 * 36e5; // widest gap between two forecast points that is still interpolated across
@@ -48,7 +50,7 @@ export function driveTime(data, dest, departMs, direction, nowMs = Date.now()) {
   if (departMs - nowMs < 30 * 6e4 && nowMs - d.at < 45 * 6e4) {
     const x = d[direction];
     const base = x.historicSec ?? x.noTrafficSec;
-    return { hours: x.sec / 3600, src: 'live', sec: x.sec, deltaMin: base ? Math.round((x.sec - base) / 60) : null, vs: x.historicSec ? 'usual' : 'free' };
+    return { hours: x.sec / 3600, src: 'live', sec: x.sec, deltaMin: base ? Math.round((x.sec - base) / 60) : null, vs: x.historicSec ? 'usual' : 'free', stops: x.stops || null };
   }
   const near = d.hourly?.[direction] || [];
   const nearEnd = near.length ? near[near.length - 1].ms : -Infinity;
@@ -61,16 +63,51 @@ export function driveTime(data, dest, departMs, direction, nowMs = Date.now()) {
   const f = b.ms === a.ms ? 0 : Math.min(1, Math.max(0, (departMs - a.ms) / (b.ms - a.ms)));
   const sec = a.sec + (b.sec - a.sec) * f;
   const free = a.noTrafficSec;
-  return { hours: sec / 3600, src: 'forecast', sec, deltaMin: free ? Math.round((sec - free) / 60) : null, vs: 'free' };
+  const mix = (x, y) => (x == null || y == null ? null : x + (y - x) * f);
+  const stops = a.stops && b.stops ? a.stops.map((x, k) => mix(x, b.stops[k])) : null;
+  return { hours: sec / 3600, src: 'forecast', sec, deltaMin: free ? Math.round((sec - free) / 60) : null, vs: 'free', stops };
+}
+
+// Seconds from departure to each timed route point, in travel order. `stopSec` holds the times TomTom gave
+// (in route order, null where unknown). A point without one is placed between its timed neighbours in
+// proportion to the route's fixed offsets; with no times at all that is the fixed offsets scaled to `hours`.
+function passTimes(route, ordered, direction, hours, stopSec) {
+  const pts = route.points.filter((p) => p.offsetH != null);
+  const total = hours * 3600;
+  const last = ordered.length - 1;
+  const nominal = ordered.map((p) => offsetFor(route, p, direction));
+  const known = ordered.map((p, k) => {
+    if (k === 0) return 0;
+    if (k === last) return total;
+    const s = stopSec?.[pts.indexOf(p)];
+    return Number.isFinite(s) && s > 0 && s < total ? s : null;
+  });
+  // A time that would put a point before the one ahead of it on the road is dropped.
+  let prev = 0;
+  for (let k = 1; k < last; k++) {
+    if (known[k] == null) continue;
+    if (known[k] < prev) known[k] = null;
+    else prev = known[k];
+  }
+  return ordered.map((_, k) => {
+    if (known[k] != null) return known[k];
+    let a = k;
+    let b = k;
+    while (known[a] == null) a--;
+    while (known[b] == null) b++;
+    const span = nominal[b] - nominal[a];
+    return known[a] + (span > 0 ? ((nominal[k] - nominal[a]) / span) * (known[b] - known[a]) : 0);
+  });
 }
 
 // Conditions at each route point at the moment you'd drive through it.
-export function alongRoute(data, dest, departMs, direction, hours = dest.route.driveHours) {
+export function alongRoute(data, dest, departMs, direction, hours = dest.route.driveHours, stopSec = null) {
   const r = dest.route;
   const pts = r.points.filter((p) => p.offsetH != null);
   const ordered = direction === 'out' ? pts : [...pts].reverse();
-  return ordered.map((p) => {
-    const ms = departMs + offsetFor(r, p, direction) * (hours / r.driveHours) * 36e5;
+  const secs = passTimes(r, ordered, direction, hours, stopSec);
+  return ordered.map((p, k) => {
+    const ms = departMs + secs[k] * 1000;
     const i = idx(data, ms);
     const w = data.weather[p.id];
     return {
@@ -103,9 +140,9 @@ function stamp(f, at, nowMs) {
 }
 
 // Forecast-only factors for a given departure. Used for the verdict and the hour-by-hour strip.
-export function forecastFactors(data, dest, departMs, direction, hours = dest.route.driveHours, nowMs = Date.now()) {
+export function forecastFactors(data, dest, departMs, direction, hours = dest.route.driveHours, nowMs = Date.now(), stopSec = null) {
   const r = dest.route;
-  const stops = alongRoute(data, dest, departMs, direction, hours);
+  const stops = alongRoute(data, dest, departMs, direction, hours, stopSec);
   const mtn = stops.filter((s) => r.mountainPoints.includes(s.point.id));
   const factors = [];
 
@@ -221,7 +258,7 @@ export function evaluate(data, dest, opts) {
 
   // 4-6. Forecast for the drive window
   if (!src('alerts')) factors.push({ key: 'alerts', level: 'caution', msg: 'srcFailed' });
-  const fc = forecastFactors(data, dest, departMs, direction, dt.hours, nowMs);
+  const fc = forecastFactors(data, dest, departMs, direction, dt.hours, nowMs, dt.stops);
   for (const f of fc.factors) {
     if (f.key !== 'alerts') factors.push(f);
     else if (src('alerts')) add('alerts', f);
@@ -266,7 +303,7 @@ export function departureStrip(data, dest, ix, day, direction, nowMs = Date.now(
     .map((h) => {
       if (h.i < 0) return { ...h, past: true, level: 'ok', drive: null };
       const dt = driveTime(data, dest, Math.max(h.ms, nowMs), direction, nowMs);
-      return { ...h, past: h.ms + 36e5 <= nowMs, level: forecastFactors(data, dest, h.ms, direction, dt.hours, nowMs).level, drive: dt.src === 'fixed' ? null : dt };
+      return { ...h, past: h.ms + 36e5 <= nowMs, level: forecastFactors(data, dest, h.ms, direction, dt.hours, nowMs, dt.stops).level, drive: dt.src === 'fixed' ? null : dt };
     });
 }
 export function bestWindow(strip, from = 5, to = 21) {
