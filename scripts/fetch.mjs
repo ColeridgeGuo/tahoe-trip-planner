@@ -27,42 +27,35 @@ async function get(url, { json = true, tries = 3, accept } = {}) {
   throw new Error(`${url}: ${err.message}`);
 }
 
-// The file published by the previous run (or left by a local run). A source that fails this time keeps
-// its last good data from here instead of going empty.
-// (How it is carried over: source() and carriedWeather() in ./lib.mjs.)
-async function previous(dest) {
-  const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
-  try {
-    if (owner) return await get(`https://${owner.toLowerCase()}.github.io/${repo}/data/${dest.id}.json`, { tries: 1 });
-  } catch { /* first run or site unreachable */ }
-  try {
-    return JSON.parse(await readFile(new URL(`../data/${dest.id}.json`, import.meta.url), 'utf8'));
-  } catch { return null; }
-}
-// The hourly record of real chain control published by the previous run (see addHistory in ./lib.mjs).
-// Null only when there is none yet (404) or it cannot be parsed. If the site cannot be reached at all, this
-// throws and the run stops before deploying: publishing now would replace the whole record with one row, and
-// it cannot be rebuilt. The next run, 15 minutes later, tries again; the site keeps its current data meanwhile.
-async function previousHistory() {
+// What the previous run published (or a local run left behind), read back at the start of every run:
+//   data/<destination>.json  a source that fails this time keeps its last good data from here (source() and
+//                            carriedWeather() in ./lib.mjs); it also carries the last day's snowfall, the
+//                            TomTom forecasts that are not due yet and today's request count;
+//   data/history.json        the hourly record of real chain control (addHistory in ./lib.mjs).
+// Null only when there is none yet (404) or it cannot be parsed. If the site cannot be reached after several
+// tries, this throws and the run stops before deploying: going on without the file would forget the snow
+// that has just fallen, refetch every TomTom forecast (about 200 requests) and replace the whole history
+// with one row. The next run, 15 minutes later, tries again; the site keeps its current data meanwhile.
+async function published(name) {
   const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
   if (owner) {
     let last = '';
     for (let i = 0; i < 5; i++) {
       try {
-        const r = await fetch(`https://${owner.toLowerCase()}.github.io/${repo}/data/history.json?ts=${Date.now()}`, { signal: AbortSignal.timeout(20000) });
+        const r = await fetch(`https://${owner.toLowerCase()}.github.io/${repo}/data/${name}.json?ts=${Date.now()}`, { signal: AbortSignal.timeout(20000) });
         if (r.status === 404) return null;
         if (r.ok) {
           const text = await r.text();
-          try { return JSON.parse(text); } catch { console.error('[history] published record is not valid JSON, starting a new one'); return null; }
+          try { return JSON.parse(text); } catch { console.error(`[${name}] published file is not valid JSON, starting without it`); return null; }
         }
         last = `HTTP ${r.status}`;
       } catch (e) { last = String(e.message); }
       await new Promise((s) => setTimeout(s, 3000 * (i + 1)));
     }
-    throw new Error(`[history] could not read the published record (${last}); not deploying, so it is not overwritten`);
+    throw new Error(`[${name}] could not read the published file (${last}); not deploying, so it is not overwritten`);
   }
   try {
-    return JSON.parse(await readFile(new URL('../data/history.json', import.meta.url), 'utf8'));
+    return JSON.parse(await readFile(new URL(`../data/${name}.json`, import.meta.url), 'utf8'));
   } catch { return null; }
 }
 // ---------- Caltrans ----------
@@ -336,13 +329,13 @@ async function drive(dest, prevFile) {
 
 // ---------- main ----------
 await mkdir(new URL('../data/', import.meta.url), { recursive: true });
-let history = await previousHistory();
+let history = await published('history');
 for (const dest of DESTINATIONS) {
   const status = {};
   const f = dest.feeds;
   const pts = dest.route.points;
   const t0 = Math.floor(Date.now() / 36e5) * 36e5;
-  const prev = await previous(dest);
+  const prev = await published(dest.id);
   const [ch, cm, cl, inc, al] = await Promise.all([
     source(status, 'chain', () => chain(f), [], prev),
     source(status, 'cams', () => cams(f), [], prev),

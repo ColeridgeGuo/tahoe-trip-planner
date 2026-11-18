@@ -34,9 +34,9 @@ describe('the state of a watched departure', () => {
     assert.equal(state(makeData()).sec, undefined);
   });
   for (const key of ['chain', 'closures', 'incidents', 'alerts', 'weather']) {
-    test(`${key} failed on this run: no state, so no notification about a gap in the data`, () => {
-      assert.equal(state(fail(makeData(), key)), null);
-      assert.equal(state(fail(makeData(), key, NOW - 20 * MIN)), null); // even with carried-over data
+    test(`${key} failed on this run: the state says so`, () => {
+      assert.deepEqual(state(fail(makeData(), key)).partial, [key]);
+      assert.deepEqual(state(fail(makeData(), key, NOW - 20 * MIN)).partial, [key]); // even with carried-over data
     });
   }
   test('a failed camera feed or TomTom does not hold alerts back', () => {
@@ -213,5 +213,44 @@ describe('the scheduled refresh stopped', () => {
   test('a long outage is given in hours; both languages fill every placeholder', () => {
     assert.ok(watchdogNote(undefined, 600, 'zh', NOW).body.includes('10 小时'));
     for (const lang of ['zh', 'en']) assert.ok(!/undefined|\{\w+\}/.test(watchdogNote(undefined, 600, lang, NOW).body));
+  });
+});
+
+describe('a source failed on this run', () => {
+  const gap = (over = {}) => cur({ level: 'caution', why: ['snow'], partial: ['weather'], ...over });
+  test('nothing is announced for a departure not reported on yet', () => {
+    assert.equal(say(undefined, gap()), null);
+  });
+  test('the verdict is held: a gap in the data is not a change in the road', () => {
+    assert.equal(say(told(), gap()), null);
+    assert.equal(say(told({ level: 'caution' }), gap({ level: 'go' })), null);
+  });
+  test('a chain change from a working feed still goes out, with the verdict as last said', () => {
+    const m = say(told(), gap({ chain: 2 }));
+    assert.match(m.body, /R2/);
+    assert.doesNotMatch(m.body, /原因|谨慎/);
+    assert.equal(m.told.level, 'go');
+    assert.equal(m.told.chain, 2);
+  });
+  test('the chain level is held too when it is the chain feed that failed', () => {
+    assert.equal(say(told(), gap({ chain: 2, partial: ['chain'] })), null);
+    assert.equal(say(told({ chain: 2 }), gap({ chain: 0, partial: ['chain'] })), null);
+  });
+  test('the summary before leaving is not put off, and says what did not update', () => {
+    const soon = plan({ departMs: NOW + 90 * MIN });
+    const m = say(told(), gap(), soon);
+    assert.match(m.body, /快出发了/);
+    assert.match(m.body, /天气预报这次没更新/);
+    assert.equal(m.told.pre, true);
+    assert.equal(m.told.level, 'go');
+    // Once the source is back, the real change is reported against what was last said.
+    const back = say(m.told, cur({ level: 'caution', why: ['snow'] }), soon);
+    assert.match(back.body, /可以出发.*谨慎|→/s);
+    assert.equal(back.told.level, 'caution');
+  });
+  test('a drive time that moved half an hour still goes out', () => {
+    const m = say(told({ drive: true, sec: 4 * 3600 }), gap({ drive: true, sec: 4 * 3600 + 40 * 60 }));
+    assert.ok(m && !m.silent);
+    assert.equal(m.told.level, 'go');
   });
 });
