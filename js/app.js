@@ -196,7 +196,7 @@ function renderChrome() {
   const d = dest();
   document.documentElement.dataset.theme = S.theme;
   const sub = `<span class="via">${esc(d.route.label)} · ${fDist(d.route.distanceKm)}</span>`;
-  $('#title').innerHTML = `<span class="brand">Tahoe Trip Planner</span><span class="where">` + (DESTINATIONS.length > 1
+  $('#title').innerHTML = `<span class="brand"><img class="logo" src="icon.svg" alt="" width="24" height="24">Tahoe Trip Planner</span><span class="where">` + (DESTINATIONS.length > 1
     ? `<select data-change="dest" aria-label="${t('dest')}">${DESTINATIONS.map((x) => `<option value="${x.id}" ${x.id === d.id ? 'selected' : ''}>${esc(nm(x.name))}</option>`).join('')}</select>${sub}`
     : `<strong>${esc(nm(d.name))}</strong>${sub}`) + '</span>';
   $('#toggles').innerHTML =

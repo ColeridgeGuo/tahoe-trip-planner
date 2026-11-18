@@ -253,3 +253,5 @@ footer{max-width:60rem;margin:auto;padding:0.25rem 1.25rem 1rem;font-size:0.7188
 /* icon left of each card title */
 .cic{flex:none;display:inline-grid;place-items:center;color:var(--mute)}
 .cic svg{width:1.0625rem;height:1.0625rem;display:block}
+/* app icon left of the page title */
+.brand .logo{width:1.375em;height:1.375em;vertical-align:-0.3em;margin-right:0.4em;border-radius:0.3em}
