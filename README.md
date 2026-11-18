@@ -9,10 +9,18 @@ A go / no-go dashboard for driving from the Bay Area to a Tahoe ski resort: chai
 - The workflow has no schedule of its own. An external cron-job triggers it every 15 minutes through `workflow_dispatch`, because GitHub's built-in scheduler runs late and unevenly.
 - Drive times come from TomTom (`TOMTOM_KEY` secret): live on every run, hourly for the next 24 h (refreshed hourly), and every 2 h out to 7 days (refreshed every 12 h). That is about 1,640 of the 2,500 free requests a day.
 - Each drive time also says when the drive reaches every point along the route (Sacramento, Placerville, Kyburz, Echo Summit), read off the route TomTom returned, so the weather shown for a point is the weather at the moment you are there. This costs no extra requests. A point the chosen route does not pass (TomTom sometimes goes via Stockton instead of Sacramento) is placed between its neighbours.
+- The verdict also counts snow that has already fallen: enough new snow in the 12 or 24 hours before you cross, while it is still freezing, is a caution even when nothing is falling any more (`TH.pack` in `js/logic.js`). The fetch script keeps the last 24 hours of snowfall (`snowPast`) for this.
+- Only CHP collisions on the mountain section (east of `route.mountainLonMin`, Placerville) change the verdict. Valley incidents are listed, and their delay is already in the TomTom drive time.
+- `data/history.json` records, hour by hour, the real chain-control level each way next to the snowfall and temperature forecast for that hour (about two months). It is there to check the snow thresholds against real storms.
+- `data/<destination>.json` carries `tomtom`: the requests sent so far today (UTC day) and yesterday's total, also printed in the run log.
 - If a source fails on a run, its last good data is carried over from the previously published file (up to 24 h) and the page shows how old it is.
 - The page additionally reads chain control straight from Caltrans on every load, so that part is always live.
-- Change alerts: pick a departure time on the Verdict tab and turn on the alert. The page saves that departure and the device's Web Push subscription in the same private Gist as the checklist; after every refresh `scripts/notify.mjs` re-evaluates it and pushes a notification when the verdict or the chain-control level changed. What was last sent is published as `data/alerts.json` (a hash and two levels, no trip details).
+- Change alerts: pick a departure time on the Verdict tab and turn on the alert. The page saves that departure and the device's Web Push subscription in the same private Gist as the checklist; after every refresh `scripts/notify.mjs` re-evaluates it and pushes a notification when the verdict or the chain-control level changed, or the drive time moved 30 minutes or more from the one last reported, plus a summary at 8 pm the evening before and two hours before leaving. What was last sent is published as `data/alerts.json` (a hash, two levels and a drive time, no trip details).
 - The checklist is stored in the browser and can sync through a private GitHub Gist (Settings → paste a token with only the `gist` scope).
+
+## Watchdog
+
+`.github/workflows/watchdog.yml` is a safety net for the external cron-job. Once an hour (GitHub's own scheduler) it checks how old the published data is. Up to 45 minutes it does nothing. Beyond that it starts the refresh itself, and that run pushes a "scheduled refresh stopped" notification to the devices registered for change alerts, once a day at most. It fetches nothing while the cron-job works. GitHub disables scheduled workflows after 60 days without a commit and emails the owner when it does.
 
 ## Setup
 

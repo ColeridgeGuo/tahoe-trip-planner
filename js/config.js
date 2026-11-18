@@ -27,6 +27,9 @@ export const DESTINATIONS = [
         { id: 'summit', name: { zh: 'Heavenly 山顶', en: 'Heavenly summit' }, lat: 38.9195, lon: -119.9005, role: 'resort' },
       ],
       mountainPoints: ['kyburz', 'pass', 'town'],
+      // Where the mountain road begins (Placerville). Only CHP incidents east of here change the verdict, and
+      // closures east of here are listed first.
+      mountainLonMin: -120.85,
       // Drive-time lookups go origin > these > town. Only points on the undivided two-lane mountain road are
       // used: they pin the route to this highway without forcing a detour through a city centre, and they
       // sit on a road that is the same in both directions.

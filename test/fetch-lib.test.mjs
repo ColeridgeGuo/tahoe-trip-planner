@@ -1,7 +1,7 @@
 // What the fetch script does with a failed source, and how it reads the feeds (scripts/lib.mjs).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { HOURS, MAX_CARRY_MS, carried, source, shiftWeather, carriedWeather, hourly, ptToMs, stopTimes } from '../scripts/lib.mjs';
+import { HOURS, MAX_CARRY_MS, carried, source, shiftWeather, carriedWeather, hourly, ptToMs, stopTimes, PAST_H, pastSnow, HISTORY_MAX, addHistory, quotaUsed, dedupe } from '../scripts/lib.mjs';
 
 const H = 36e5;
 const MIN = 6e4;
@@ -183,5 +183,80 @@ describe('pass-through times read off a TomTom route', () => {
   test('a leg without a time leaves the waypoints after it untimed', () => {
     const broken = { ...route, legs: [route.legs[0], { points: route.legs[1].points }] };
     assert.deepEqual(stopTimes(broken, way, way), [0, 2000, null]);
+  });
+});
+
+describe('snowfall of the last day, kept for the page', () => {
+  const T0 = Date.UTC(2026, 0, 13, 8);
+  const file = (snow, snowPast) => ({ t0: T0, weather: { pass: { snow, ...(snowPast ? { snowPast } : {}) } } });
+  test('no previous file: all unknown', () => {
+    assert.deepEqual(pastSnow(null, 'pass', T0), new Array(PAST_H).fill(null));
+    assert.deepEqual(pastSnow(file([1, 2]), 'kyburz', T0), new Array(PAST_H).fill(null));
+  });
+  test('the hour that just ended is the first hour of the previous file', () => {
+    const past = pastSnow(file([7, 8, 9]), 'pass', T0 + H);
+    assert.equal(past.length, PAST_H);
+    assert.equal(past.at(-1), 7);
+    assert.equal(past.at(-2), null);
+  });
+  test('same hour as the previous file: its past hours are kept as they are', () => {
+    const before = Array.from({ length: PAST_H }, (_, i) => i);
+    assert.deepEqual(pastSnow(file([7, 8, 9], before), 'pass', T0), before);
+  });
+  test('hours roll through: older ones come from the previous past, newer ones from its forecast', () => {
+    const before = Array.from({ length: PAST_H }, (_, i) => 100 + i);
+    const past = pastSnow(file([7, 8, 9], before), 'pass', T0 + 2 * H);
+    assert.deepEqual(past.slice(-3), [100 + PAST_H - 1, 7, 8]);
+    assert.equal(past[0], 102);
+  });
+  test('a gap longer than the previous file reaches: unknown, not zero', () => {
+    assert.deepEqual(pastSnow(file([7, 8, 9]), 'pass', T0 + 400 * H), new Array(PAST_H).fill(null));
+  });
+});
+
+describe('hourly record of real chain control', () => {
+  const T = Date.UTC(2026, 0, 13, 8);
+  const row = (over = {}) => ({ t: T, e: 0, w: 0, s: [0, 0, 0], c: [1, 0, -1], ...over });
+  test('starts a record and names the points', () => {
+    assert.deepEqual(addHistory(null, row(), ['kyburz', 'pass', 'town']), { v: 1, points: ['kyburz', 'pass', 'town'], rows: [row()] });
+  });
+  test('several runs in one hour make one row, keeping the strictest level each way', () => {
+    let h = addHistory(null, row({ e: 2, w: 0 }), []);
+    h = addHistory(h, row({ e: 1, w: 1, s: [3, 3, 3] }), []);
+    assert.equal(h.rows.length, 1);
+    assert.deepEqual([h.rows[0].e, h.rows[0].w], [2, 1]);
+    assert.deepEqual(h.rows[0].s, [3, 3, 3]);
+  });
+  test('a run where the chain feed failed does not erase what the hour already showed', () => {
+    const h = addHistory(addHistory(null, row({ e: 2 }), []), row({ e: null, w: null }), []);
+    assert.deepEqual([h.rows[0].e, h.rows[0].w], [2, 0]);
+  });
+  test('rows stay in time order and the oldest drop off', () => {
+    let h = null;
+    for (let i = 0; i < HISTORY_MAX + 5; i++) h = addHistory(h, row({ t: T + i * H }), []);
+    assert.equal(h.rows.length, HISTORY_MAX);
+    assert.equal(h.rows[0].t, T + 5 * H);
+    assert.equal(h.rows.at(-1).t, T + (HISTORY_MAX + 4) * H);
+  });
+});
+
+describe('TomTom requests used today', () => {
+  const at = (h) => Date.UTC(2026, 0, 13, h);
+  test('adds up over the runs of a UTC day', () => {
+    const a = quotaUsed(null, 50, at(1));
+    assert.deepEqual(a, { day: '2026-01-13', n: 50 });
+    assert.deepEqual(quotaUsed(a, 2, at(2)), { day: '2026-01-13', n: 52 });
+  });
+  test('a new day starts from zero and keeps the total of the day before', () => {
+    const b = quotaUsed({ day: '2026-01-13', n: 1640 }, 2, at(24));
+    assert.deepEqual(b, { day: '2026-01-14', n: 2, prev: { day: '2026-01-13', n: 1640 } });
+    assert.deepEqual(quotaUsed(b, 2, at(25)).prev, { day: '2026-01-13', n: 1640 });
+  });
+});
+
+describe('closure feed', () => {
+  test('a closure listed twice is kept once; different ones stay', () => {
+    const a = { from: 'A', to: 'B', start: 1 };
+    assert.deepEqual(dedupe([a, { ...a }, { ...a, start: 2 }]), [a, { ...a, start: 2 }]);
   });
 });

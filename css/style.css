@@ -242,3 +242,5 @@ footer{max-width:60rem;margin:auto;padding:0.25rem 1.25rem 1rem;font-size:0.7188
 .wkbars .best i{box-shadow:inset 0 0.1875rem 0 var(--ink)}
 .wkbars .sel i{outline:2px solid var(--ink);outline-offset:1px}
 .wkhead .wkbars{height:auto;border:0}.wkhead span{font-size:0.625rem;color:var(--mute);white-space:nowrap;overflow:visible;min-width:0}
+/* Heavy snow (chain control very likely): the caution colour striped with red, to tell it from light snow. Only on caution cells: a no-go cell stays red. */
+.strip .caution.heavy i,.wkbars .caution.heavy:not(.nd) i,.lg.heavy{background:repeating-linear-gradient(135deg,var(--caution) 0 3px,var(--nogo) 3px 6px)}

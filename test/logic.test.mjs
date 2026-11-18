@@ -143,6 +143,14 @@ describe('incidents', () => {
     assert.equal(r.level, 'go');
     assert.equal(factor(r, 'incidents').msg, 'incSome');
   });
+  test('a collision in the valley, west of the mountain road, is listed but does not change the verdict', () => {
+    const r = ev(makeData({ incidents: [incident({ lon: -121.46 })] })); // Sacramento
+    assert.equal(r.level, 'go');
+    assert.equal(factor(r, 'incidents').v.all.length, 1);
+    assert.equal(factor(r, 'incidents').v.serious.length, 0);
+    assert.equal(ev(makeData({ incidents: [incident({ lon: route.mountainLonMin })] })).level, 'caution');
+    assert.equal(ev(makeData({ incidents: [incident({ lon: -120.03 })] })).level, 'caution'); // Echo Summit
+  });
   test('incidents now do not decide a trip days away', () => {
     const r = ev(makeData({ incidents: [incident()] }), { departMs: LATER });
     assert.equal(factor(r, 'incidents').level, 'info');
@@ -171,6 +179,61 @@ describe('weather on the mountain section', () => {
     assert.equal(ev(snowAt(60, passHour + 1)).level, 'nogo');
     assert.equal(ev(snowAt(60, passHour - 3)).level, 'go');
     assert.equal(ev(snowAt(60, passHour + 3)).level, 'go');
+  });
+  describe('snow that fell before the crossing', () => {
+    // `mm` of snow an hour for the `hours` before the pass is reached, none while crossing.
+    const storm = (mm, hours, temp, endsBefore = 2, cross = passHour) => {
+      const data = makeData();
+      for (let h = cross - endsBefore - hours + 1; h <= cross - endsBefore; h++) data.weather.pass.snow[h] = mm;
+      data.weather.pass.temp.fill(temp);
+      return data;
+    };
+    test('enough of it and still freezing: caution, chain control probably still up', () => {
+      const r = ev(storm(10, 6, -5));
+      assert.equal(factor(r, 'snow').msg, 'snowPack');
+      assert.equal(factor(r, 'snow').level, 'caution');
+      assert.equal(factor(r, 'snow').v.pack.mm, 60);
+      assert.equal(factor(r, 'snow').v.pack.hours, 12);
+      assert.equal(factor(r, 'snow').v.pack.stop.point.id, 'pass');
+    });
+    test('thresholds: the amount, the temperature, and how long ago', () => {
+      const msg = (data) => factor(ev(data, { departMs: LATER }), 'snow').msg;
+      const laterPass = hourIdx(LATER + route.points.find((p) => p.id === 'pass').offsetH * H);
+      const later = (mm, hours, temp, endsBefore) => storm(mm, hours, temp, endsBefore, laterPass);
+      const [short, long] = L.TH.pack;
+      assert.equal(msg(later(short.mm / 5, 5, L.TH.packTemp)), 'snowPack');
+      assert.equal(msg(later(short.mm / 5 - 1, 5, L.TH.packTemp)), 'snowNone'); // too little
+      assert.equal(msg(later(20, 5, L.TH.packTemp + 1)), 'snowNone'); // thawing as you cross
+      assert.equal(msg(later(15, 5, -5, short.hours + 1)), 'snowNone'); // a short storm that ended long enough ago
+      // A long storm tapering off: too little in the last 12 hours, but a lot within the day.
+      const taper = later(long.mm / 10, 10, -5, short.hours - 2);
+      assert.equal(msg(taper), 'snowPack');
+      assert.equal(factor(ev(taper, { departMs: LATER }), 'snow').v.pack.hours, long.hours);
+      assert.equal(msg(later(long.mm / 10, 10, -5, long.hours + 1)), 'snowNone'); // more than a day ago
+    });
+    test('while it is still snowing the falling snow is what is reported', () => {
+      const data = storm(10, 6, -5);
+      data.weather.pass.snow[passHour] = L.TH.snowLight;
+      assert.equal(factor(ev(data), 'snow').msg, 'snowLight');
+    });
+    test('snow from before the file starts is read from the hours the fetch script kept', () => {
+      const data = makeData();
+      data.weather.pass.temp.fill(-5);
+      const trip = { departMs: T0, nowMs: T0 }; // crossing 3 to 4 hours into the file
+      assert.equal(factor(ev(data, trip), 'snow').msg, 'snowNone');
+      data.weather.pass.snowPast = [...new Array(18).fill(0), 20, 20, 20, 0, 0, 0]; // ended 3 hours before the file starts
+      assert.equal(factor(ev(data, trip), 'snow').msg, 'snowPack');
+      assert.equal(factor(ev(data, trip), 'snow').v.pack.mm, 60);
+    });
+    test('the hour-by-hour strip marks heavy snow apart from light snow', () => {
+      const data = makeData();
+      data.weather.pass.snow.fill(L.TH.snowLight, 24, 36);
+      data.weather.pass.snow.fill(L.TH.snowHeavy, 36, 48);
+      const strip = L.departureStrip(data, dest, L.index(data), L.dayKey(T0 + 24 * H), 'out', NOW);
+      assert.ok(strip.some((s) => s.level === 'caution' && !s.heavy));
+      assert.ok(strip.some((s) => s.level === 'caution' && s.heavy));
+      assert.ok(strip.filter((s) => s.heavy).every((s) => s.h >= 7)); // only departures that cross during the heavy hours
+    });
   });
   test('snow in the valley does not count', () => {
     assert.equal(ev(snowAt(60, hourIdx(NOW + 1.75 * H), 'sac')).level, 'go');

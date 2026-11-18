@@ -3,7 +3,8 @@
 import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { DESTINATIONS } from '../js/config.js';
 import { CC_URL, normalizeChain, incidentDir } from '../js/normalize.js';
-import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes } from './lib.mjs';
+import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes, pastSnow, addHistory, quotaUsed, dedupe } from './lib.mjs';
+import { chainFor } from '../js/logic.js';
 
 const UA = 'tahoe-trip-planner (personal trip dashboard, github pages)';
 const pad = (d) => String(d).padStart(2, '0');
@@ -36,6 +37,32 @@ async function previous(dest) {
   } catch { /* first run or site unreachable */ }
   try {
     return JSON.parse(await readFile(new URL(`../data/${dest.id}.json`, import.meta.url), 'utf8'));
+  } catch { return null; }
+}
+// The hourly record of real chain control published by the previous run (see addHistory in ./lib.mjs).
+// Null only when there is none yet (404) or it cannot be parsed. If the site cannot be reached at all, this
+// throws and the run stops before deploying: publishing now would replace the whole record with one row, and
+// it cannot be rebuilt. The next run, 15 minutes later, tries again; the site keeps its current data meanwhile.
+async function previousHistory() {
+  const [owner, repo] = (process.env.GITHUB_REPOSITORY || '').split('/');
+  if (owner) {
+    let last = '';
+    for (let i = 0; i < 5; i++) {
+      try {
+        const r = await fetch(`https://${owner.toLowerCase()}.github.io/${repo}/data/history.json?ts=${Date.now()}`, { signal: AbortSignal.timeout(20000) });
+        if (r.status === 404) return null;
+        if (r.ok) {
+          const text = await r.text();
+          try { return JSON.parse(text); } catch { console.error('[history] published record is not valid JSON, starting a new one'); return null; }
+        }
+        last = `HTTP ${r.status}`;
+      } catch (e) { last = String(e.message); }
+      await new Promise((s) => setTimeout(s, 3000 * (i + 1)));
+    }
+    throw new Error(`[history] could not read the published record (${last}); not deploying, so it is not overwritten`);
+  }
+  try {
+    return JSON.parse(await readFile(new URL('../data/history.json', import.meta.url), 'utf8'));
   } catch { return null; }
 }
 // ---------- Caltrans ----------
@@ -105,7 +132,7 @@ async function closures(feeds, hw) {
       });
     }
   }
-  return out.sort((a, b) => a.start - b.start || a.lon - b.lon);
+  return dedupe(out).sort((a, b) => a.start - b.start || a.lon - b.lon);
 }
 
 // ---------- CHP ----------
@@ -189,6 +216,7 @@ async function alerts(points) {
 // The key comes from the TOMTOM_KEY secret. Errors are built without the request URL so the key can never
 // end up in the published JSON or the logs.
 const TT_KEY = process.env.TOMTOM_KEY || '';
+let ttCalls = 0; // requests sent on this run, retries included: each one counts against the daily quota
 // `timed` are the route points whose pass-through time is read off the returned route (stopTimes in ./lib.mjs).
 // That needs the route's polyline and progress markers, so the response is the full route, not just a summary.
 async function ttRoute(points, departMs, timed = []) {
@@ -198,6 +226,7 @@ async function ttRoute(points, departMs, timed = []) {
   let last = 'no response';
   for (let i = 0; i < 3; i++) {
     try {
+      ttCalls++;
       const r = await fetch(`https://api.tomtom.com/routing/1/calculateRoute/${locs}/json?${q}`, { signal: AbortSignal.timeout(30000) });
       if (r.ok) {
         const route = (await r.json()).routes?.[0];
@@ -307,6 +336,7 @@ async function drive(dest, prevFile) {
 
 // ---------- main ----------
 await mkdir(new URL('../data/', import.meta.url), { recursive: true });
+let history = await previousHistory();
 for (const dest of DESTINATIONS) {
   const status = {};
   const f = dest.feeds;
@@ -336,6 +366,8 @@ for (const dest of DESTINATIONS) {
       } else failed.push(p.id);
     }
   }
+  for (const p of pts) if (weather[p.id]) weather[p.id].snowPast = pastSnow(prev, p.id, t0);
+  ttCalls = 0;
   const dr = TT_KEY ? await source(status, 'drive', () => drive(dest, prev), null, prev) : null;
   if (dr?.hourlyError && status.drive.ok) status.drive.hourlyError = dr.hourlyError;
   if (dr) delete dr.hourlyError;
@@ -343,9 +375,19 @@ for (const dest of DESTINATIONS) {
   status.weather = wxErr
     ? { ok: false, error: wxErr, at: Date.now(), ...(kept.length ? { dataAt: Math.min(...kept.map((id) => weather[id].at)) } : {}) }
     : { ok: true, at: Date.now() };
-  const out = { generatedAt: Date.now(), t0, hours: HOURS, status, chain: ch, closures: cl, incidents: inc, alerts: al, cams: cm, weather, drive: dr };
+  const tomtom = TT_KEY ? quotaUsed(prev?.tomtom, ttCalls) : null;
+  const out = { generatedAt: Date.now(), t0, hours: HOURS, status, chain: ch, closures: cl, incidents: inc, alerts: al, cams: cm, weather, drive: dr, tomtom };
+  // What chain control really is this hour, next to what was forecast for it (first destination only: one highway).
+  if (dest === DESTINATIONS[0]) {
+    const mtn = dest.route.mountainPoints;
+    const lv = (dir) => { const m = status.chain.ok ? chainFor(out, dest.route.highway, dir).max : -1; return m < 0 ? null : m; };
+    const now0 = (field) => mtn.map((id) => weather[id]?.[field]?.[0] ?? null);
+    history = addHistory(history, { t: t0, e: lv(dest.route.outboundDir), w: lv(dest.route.returnDir), s: now0('snow'), c: now0('temp') }, mtn);
+    await writeFile(new URL('../data/history.json', import.meta.url), JSON.stringify(history));
+  }
   await writeFile(new URL(`../data/${dest.id}.json`, import.meta.url), JSON.stringify(out));
   console.log(dest.id, Object.entries(status).map(([k, v]) => `${k}:${v.ok ? 'ok' : 'FAIL'}`).join(' '),
     `chain=${ch.length} cams=${cm.length} closures=${cl.length} incidents=${inc.length} alerts=${al.length} weather=${Object.keys(weather).length}`,
+    tomtom ? `tomtom: ${ttCalls} requests this run, ${tomtom.n} today (${tomtom.day} UTC)${tomtom.prev ? `, ${tomtom.prev.n} on ${tomtom.prev.day}` : ''}` : '',
     dr ? `drive: out ${Math.round(dr.out.sec / 60)}min back ${Math.round(dr.back.sec / 60)}min hourly=${dr.hourly.out.length} (${Math.round((Date.now() - dr.hourlyAt) / 6e4)}min old) long=${dr.long?.out.length ?? 0} (${Math.round((Date.now() - (dr.longAt || 0)) / 6e4)}min old)` : TT_KEY ? 'drive: FAILED' : 'drive: no TOMTOM_KEY');
 }

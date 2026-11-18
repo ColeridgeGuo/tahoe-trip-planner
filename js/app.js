@@ -310,6 +310,7 @@ function factorText(f) {
       if (!v) return t('m.' + f.msg);
       return t('m.' + f.msg, { hw, n: v.all.length, s: v.serious.length }) + (f.live ? '' : ` <span class="muted">(${t('refOnly')})</span>`);
     case 'snow':
+      if (f.msg === 'snowPack') return t('m.snowPack', { h: v.pack.hours, total: fSnow(v.pack.mm), temp: fT(v.pack.temp), where: esc(nm(v.pack.stop.point.name)) });
       return t('m.' + f.msg, v?.stop ? { rate: fSnow(v.rate), where: esc(nm(v.stop.point.name)) } : {});
     case 'alerts':
       if (!Array.isArray(v) || !v.length) return t('m.' + f.msg);
@@ -370,7 +371,7 @@ function viewVerdict() {
   const hasDrive = strip.some((x) => x.drive && !x.past);
   const stripHtml = `<div class="strip" role="group">${strip.map((s) => {
     const sel = pick ? S.depart.h === s.h : L.hourOf(dm) === s.h;
-    return `<button data-act="hour" data-v="${s.h}" class="${s.past ? 'past' : s.level} ${sel ? 'sel' : ''}" ${s.past ? 'disabled' : ''} title="${fHour(s.h)}"><i></i><span>${s.h % 3 === 0 ? fHour(s.h) : ''}</span>${hasDrive ? `<span class="dr">${s.h % 3 === 0 && s.drive && !s.past ? fDur(s.drive.sec, true) : ''}</span>` : ''}</button>`;
+    return `<button data-act="hour" data-v="${s.h}" class="${s.past ? 'past' : s.level}${s.heavy && !s.past ? ' heavy' : ''} ${sel ? 'sel' : ''}" ${s.past ? 'disabled' : ''} title="${fHour(s.h)}"><i></i><span>${s.h % 3 === 0 ? fHour(s.h) : ''}</span>${hasDrive ? `<span class="dr">${s.h % 3 === 0 && s.drive && !s.past ? fDur(s.drive.sec, true) : ''}</span>` : ''}</button>`;
   }).join('')}</div>
   <p class="note"><b>${win ? `${t('bestWin')}: ${fHour(win.from)} – ${fHour(win.to + 1)}` : t('noWin')}</b> · ${t('stripHint')}${hasDrive ? ' ' + t('stripDrive') : ''}</p>`;
 
@@ -397,11 +398,11 @@ function weekHtml() {
       const pct = drive ? Math.round(30 + 70 * (span > 60 ? (c.drive.sec - wk.lo) / span : 0.5)) : 30;
       const sel = S.depart !== 'now' && S.direction === dir && S.depart.day === r.day && S.depart.h === c.h;
       const tip = `${fDay(r.day)} ${fHour(c.h)}${drive ? ' · ' + fDur(c.drive.sec, true) : ''}`;
-      return `<button data-act="wk" data-v="${dir}|${r.day}|${c.h}" class="${c.past ? 'past' : c.level}${drive ? '' : ' nd'}${sel ? ' sel' : ''}${c === r.best ? ' best' : ''}" ${c.past ? 'disabled' : ''} title="${tip}" aria-label="${tip}"><i style="height:${pct}%"></i></button>`;
+      return `<button data-act="wk" data-v="${dir}|${r.day}|${c.h}" class="${c.past ? 'past' : c.level}${c.heavy && !c.past ? ' heavy' : ''}${drive ? '' : ' nd'}${sel ? ' sel' : ''}${c === r.best ? ' best' : ''}" ${c.past ? 'disabled' : ''} title="${tip}" aria-label="${tip}"><i style="height:${pct}%"></i></button>`;
     }).join('')}</div></div>`).join('');
     return `<h3 class="wkdir">${t(dir)} · ${esc(nm(ends[0].name))} → ${esc(nm(ends[1].name))}${wk.lo == null ? '' : `<span>${t('driveLabel')} ${fDur(wk.lo, true)} – ${fDur(wk.hi, true)}</span>`}</h3><div class="wk">${head}${rows}</div>`;
   };
-  return block('out') + block('back') + `<div class="legend"><span><i class="lg ok"></i>${t('wkOk')}</span><span><i class="lg caution"></i>${t('wkCaution')}</span><span><i class="lg nogo"></i>${t('wkNogo')}</span></div><p class="note">${t('wkHint')}</p>`;
+  return block('out') + block('back') + `<div class="legend"><span><i class="lg ok"></i>${t('wkOk')}</span><span><i class="lg caution"></i>${t('wkCaution')}</span><span><i class="lg caution heavy"></i>${t('wkHeavy')}</span><span><i class="lg nogo"></i>${t('wkNogo')}</span></div><p class="note">${t('wkHint')}</p>`;
 }
 
 // ----- weather -----
@@ -464,7 +465,8 @@ function viewRoads() {
   const now = Date.now();
   const clRow = (k) => `<li><span class="badge ${L.isFull(k) ? 'nogo' : k.start <= now ? 'caution' : 'na'}">${k.start <= now ? t('activeNow') : t('upcoming')}</span><div><b>${esc(k.from)} → ${esc(k.to)}</b>
     <small>${esc(k.facility)} · ${esc(k.type)} · ${esc(k.work)} · ${esc(k.dir)}</small><small>${fWhen(k.start)} ${t('until')} ${k.end ? fWhen(k.end) : t('indefinite')}${k.delayMin ? ' · ' + t('delay', { d: k.delayMin }) : ''}${k.total ? ' · ' + t('lanesOf', { a: k.lanes, b: k.total }) : ''}</small></div></li>`;
-  const closDir = S.data.closures.filter((k) => L.inDir(k.dir, dir));
+  // The mountain section first (stable, so each group stays in time order): it is the part with no way round.
+  const closDir = S.data.closures.filter((k) => L.inDir(k.dir, dir)).sort((a, b) => L.onMountain(r, b) - L.onMountain(r, a));
   const soon = closDir.filter((k) => !L.isRamp(k) && k.start < now + 48 * 36e5);
   const later = closDir.filter((k) => L.isRamp(k) || k.start >= now + 48 * 36e5);
   const clos = closDir.length
@@ -473,7 +475,7 @@ function viewRoads() {
 
   const incDir = L.incidentsFor(S.data, dir);
   const inc = incDir.length
-    ? `<ul class="rows">${incDir.map((x) => `<li><span class="badge ${/collision|closure|sigalert|fatal|spin/i.test(x.type) ? 'caution' : 'na'}">${x.time ? fTime(x.time) : ''}</span><div><b>${esc(x.type)}</b><small>${esc(x.loc)}${x.desc ? ' · ' + esc(x.desc) : ''} · ${esc(x.area)}</small>${x.details.length ? `<p>${x.details.map(esc).join('<br>')}</p>` : ''}</div></li>`).join('')}</ul>`
+    ? `<ul class="rows">${incDir.map((x) => `<li><span class="badge ${L.isSerious(x) && L.onMountain(r, x) ? 'caution' : 'na'}">${x.time ? fTime(x.time) : ''}</span><div><b>${esc(x.type)}</b><small>${esc(x.loc)}${x.desc ? ' · ' + esc(x.desc) : ''} · ${esc(x.area)}</small>${x.details.length ? `<p>${x.details.map(esc).join('<br>')}</p>` : ''}</div></li>`).join('')}</ul>`
     : `<p class="muted">${t('incNoneShort')}</p>`;
 
   const bust = Math.floor(Date.now() / 3e5);
