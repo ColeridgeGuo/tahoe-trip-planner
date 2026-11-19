@@ -176,8 +176,9 @@ function stamp(f, at, nowMs) {
 // What an NWS alert means for the drive, by its event name. Only alerts about the road count: snow, ice, wind
 // strong enough to matter on the pass, fog, flooding. The rest (Lake Wind Advisory, which is for boats on the
 // lake and is out most winter weeks, Freeze Warning, watches, statements) are still listed but leave the
-// verdict alone.
-const ALERT_NOGO = /blizzard|ice storm|avalanche warning/i;
+// verdict alone. So are Avalanche Warning and Watch: they are issued for the backcountry, not the highway,
+// and when a slide path does threaten the road Caltrans closes it, which the closure and chain feeds show.
+const ALERT_NOGO = /blizzard|ice storm/i;
 const ALERT_ROAD = /winter storm warning|winter weather advisory|snow squall|freezing (rain|fog|drizzle)|^high wind warning|^wind advisory|dense fog advisory|flash flood warning|^flood warning/i;
 export const alertLevel = (event) => (ALERT_NOGO.test(event) ? 'nogo' : ALERT_ROAD.test(event) ? 'caution' : 'ok');
 
@@ -471,8 +472,20 @@ export function bestWindow(strip, from = 5, to = 21) {
   return best ? { from: best[0].h, to: best[best.length - 1].h } : null;
 }
 
+// The latest departure of the day that the forecast still calls clear, when leaving later than that is
+// worse: the deadline for the drive home before a storm arrives. `cells` is departureStrip() for one day (or a
+// week-overview row). Returns { h, ms }, or null when there is no such deadline: the forecast stays clear to
+// the end of the day, or no departure between `from` and `to` is clear at all (`none: true` tells that apart).
+export function lastClear(cells, from = 5, to = 21) {
+  const ahead = cells.filter((s) => !s.past && !s.none);
+  const last = ahead.filter((s) => s.level === 'ok' && s.h >= from && s.h <= to).at(-1);
+  if (!last) return ahead.some((s) => s.h >= from && s.h <= to) ? { none: true } : null;
+  return ahead.some((s) => s.h > last.h && s.level !== 'ok') ? { h: last.h, ms: last.ms } : null;
+}
+
 // One row per day for the week overview: 24 hourly departures each (level + drive time), the fastest
-// low-risk departure of the day within the usual waking window, and the range of drive times shown.
+// low-risk departure of the day within the usual waking window, the latest clear departure where later is
+// worse (lastClear), and the range of drive times shown.
 export function weekOverview(data, dest, ix, direction, nowMs = Date.now(), from = 5, to = 21, vehicle = null) {
   let lo = Infinity;
   let hi = -Infinity;
@@ -487,7 +500,8 @@ export function weekOverview(data, dest, ix, direction, nowMs = Date.now(), from
       if (c.h < from || c.h > to) continue;
       if (!best || LV[c.level] < LV[best.level] || (LV[c.level] === LV[best.level] && c.drive.sec < best.drive.sec)) best = c;
     }
-    return { day, cells, best };
+    const last = lastClear(cells, from, to);
+    return { day, cells, best, last: last?.none ? null : last };
   }).filter((r) => r.cells.some((c) => !c.none && !c.past));
   return { rows, lo: lo === Infinity ? null : lo, hi: hi === -Infinity ? null : hi };
 }
@@ -504,8 +518,12 @@ export function daily(data, ix, pointId, hFrom = 0, hTo = 23) {
     const snow = sum(col('snow'));
     const qpf = sum(col('qpf'));
     const sl = col('snowLevel');
+    const have = hs.filter((h) => w.temp[h.i] != null);
     return {
       day,
+      // The first and last hour the figures cover: today starts at the current hour, the last day ends early.
+      h0: have.length ? have[0].h : null,
+      h1: have.length ? have[have.length - 1].h : null,
       n: temp.length,
       full: temp.length >= Math.min(20, hTo - hFrom + 1),
       hi: temp.length ? Math.max(...temp) : null,

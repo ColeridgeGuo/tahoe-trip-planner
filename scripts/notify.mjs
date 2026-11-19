@@ -6,7 +6,7 @@ import { writeFile, readFile } from 'node:fs/promises';
 import { createECDH, createCipheriv, createPrivateKey, createHash, hkdfSync, randomBytes, sign } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { DESTINATIONS, DEFAULT_VEHICLE } from '../js/config.js';
-import { evaluate, chainOn, LV, hourOf, quotaState } from '../js/logic.js';
+import { evaluate, chainOn, LV, hourOf, quotaState, index, dayKey, departureStrip, lastClear } from '../js/logic.js';
 import { makeT } from '../js/i18n.js';
 
 const FILE = 'tahoe-trip-alerts.json';
@@ -31,6 +31,10 @@ export function planState(data, dest, plan, vehicle, nowMs = Date.now()) {
   const r = dest.route;
   const ev = evaluate(data, dest, { departMs: plan.departMs, direction: plan.direction, vehicle, nowMs });
   const worst = Math.max(...ev.factors.map((f) => LV[f.level]));
+  // For the drive home: the last departure of that day the forecast still calls clear, when later is worse
+  // (an hour of the day), or -1 when no departure between 5 and 21 h is clear. Left out when there is no
+  // such deadline.
+  const last = plan.direction === 'back' ? lastClear(departureStrip(data, dest, index(data), dayKey(plan.departMs), 'back', nowMs, vehicle)) : null;
   return {
     level: ev.level,
     drive: ev.drive.src !== 'fixed', // false: no TomTom time for this departure, the fixed estimate was used
@@ -38,6 +42,7 @@ export function planState(data, dest, plan, vehicle, nowMs = Date.now()) {
     ...(ev.drive.src !== 'fixed' && ev.drive.snowMin ? { snowMin: ev.drive.snowMin } : {}), // minutes the snow is expected to add, [from, to]
     chain: chainOn(data, r, plan.direction).max, // every road of the trip, e.g. I-80 and CA-267 for Northstar
     why: worst > 0 ? ev.factors.filter((f) => LV[f.level] === worst).map((f) => f.key) : [],
+    ...(last ? { late: last.none ? -1 : last.h } : {}),
     ...(partial.length ? { partial } : {}),
   };
 }
@@ -62,7 +67,7 @@ export function decide(told, cur, plan, dest, lang, nowMs = Date.now()) {
   // change read from a working feed, the drive time and the summaries still go out.
   const gap = cur.partial?.length ? cur.partial : null;
   if (gap && !told) return null;
-  if (gap) cur = { ...cur, level: told.level, why: [], ...(gap.includes('chain') ? { chain: told.chain } : {}) };
+  if (gap) cur = { ...cur, level: told.level, why: [], late: told.late, ...(gap.includes('chain') ? { chain: told.chain } : {}) };
   const gapNote = gap ? '\n' + t('al.nPartial', { list: gap.map((k) => t('al.src.' + k)).join(lang === 'zh' ? '、' : ', ') }) : '';
   const r = dest.route;
   const dir = plan.direction === 'out' ? r.outboundDir : r.returnDir;
@@ -75,13 +80,17 @@ export function decide(told, cur, plan, dest, lang, nowMs = Date.now()) {
   const due = summariesDue(plan, nowMs);
   const flags = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v));
   const driveTxt = cur.sec != null ? t('al.nDriveNow', { v: fDur(cur.sec) }) + (cur.snowMin ? t('al.nDriveSnow', { a: cur.snowMin[0], b: cur.snowMin[1] }) : '') : '';
+  // The deadline for the drive home (planState `late`), in words.
+  const fHour = (h) => (lang === 'zh' ? `${h}时` : `${h % 12 || 12}${h < 12 ? 'am' : 'pm'}`);
+  const lateTxt = (v) => (v == null ? t('al.nLateOff') : v < 0 ? t('al.nLateNone') : t('al.nLate', { h: fHour(v) }));
+  const lateNote = cur.late != null ? '\n' + lateTxt(cur.late) : '';
   if (!told) {
     // A summary whose moment has already passed is not sent later: the message below says the same.
-    const now = { level: cur.level, chain: cur.chain, drive: cur.drive, ...(cur.sec != null ? { sec: cur.sec } : {}), ...flags(due) };
+    const now = { level: cur.level, chain: cur.chain, drive: cur.drive, ...(cur.sec != null ? { sec: cur.sec } : {}), ...(cur.late != null ? { late: cur.late } : {}), ...flags(due) };
     // No record of this departure although it was set a while ago: the published state was lost (a failed
     // run, a site outage). Take the current reading as the baseline quietly instead of announcing it again.
     if (nowMs - (plan.setAt || 0) > START_WINDOW_MS) return { silent: true, told: now };
-    return { title, body: t('al.nStart', { level: t(cur.level), hw, chain: chainName(cur.chain) }) + (driveTxt ? '\n' + driveTxt : '') + why, told: now };
+    return { title, body: t('al.nStart', { level: t(cur.level), hw, chain: chainName(cur.chain) }) + (driveTxt ? '\n' + driveTxt : '') + lateNote + why, told: now };
   }
   // The drive time was part of the last verdict and is missing now (TomTom failed): an apparent improvement
   // may only be the lost traffic delay, so it is not reported until drive times are back. Worse is still sent.
@@ -94,9 +103,13 @@ export function decide(told, cur, plan, dest, lang, nowMs = Date.now()) {
   // Drive time: reported when it moved half an hour or more from the one last reported.
   const driveNow = cur.sec != null && told.sec != null && Math.abs(cur.sec - told.sec) >= DRIVE_STEP_SEC;
   if (driveNow) lines.push(t(cur.sec > told.sec ? 'al.nDriveUp' : 'al.nDriveDown', { a: fDur(told.sec), b: fDur(cur.sec), d: Math.round(Math.abs(cur.sec - told.sec) / 60) }));
+  // The deadline for the drive home: reported when one appears or goes, or moves two hours or more (the
+  // forecast shifts by an hour from one update to the next, which is not worth a push).
+  const lateNow = (cur.late == null) !== (told.late == null) || (cur.late != null && ((cur.late < 0) !== (told.late < 0) || Math.abs(cur.late - told.late) >= 2));
+  if (lateNow) lines.push(lateTxt(cur.late));
   // Summaries: sent once each, even when nothing changed, so that silence is not mistaken for a dead alert.
   const sum = due.pre && !told.pre ? 'pre' : due.eve && !told.eve ? 'eve' : null;
-  if (sum) lines.unshift(t(sum === 'pre' ? 'al.nSumPre' : 'al.nSumEve', { level: t(level), hw, chain: chainName(cur.chain) }) + (driveTxt && !driveNow ? '\n' + driveTxt : '') + gapNote);
+  if (sum) lines.unshift(t(sum === 'pre' ? 'al.nSumPre' : 'al.nSumEve', { level: t(level), hw, chain: chainName(cur.chain) }) + (driveTxt && !driveNow ? '\n' + driveTxt : '') + (lateNow ? '' : lateNote) + gapNote);
   // The drive time last reported: the first one seen is the baseline, and it then moves only when a
   // notification stated the current one.
   const sec = cur.sec != null && (told.sec == null || driveNow || sum) ? cur.sec : told.sec;
@@ -105,6 +118,8 @@ export function decide(told, cur, plan, dest, lang, nowMs = Date.now()) {
     chain: chainNow || sum ? cur.chain : told.chain,
     drive: blind ? told.drive : cur.drive,
     ...(sec != null ? { sec } : {}),
+    // The deadline last reported: it moves only when a notification stated the current one.
+    ...((lateNow || sum ? cur.late : told.late) != null ? { late: lateNow || sum ? cur.late : told.late } : {}),
     ...flags({ eve: told.eve || !!sum, pre: told.pre || sum === 'pre' }),
   };
   if (!lines.length) {

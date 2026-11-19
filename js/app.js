@@ -54,6 +54,8 @@ function fSnow(mm) {
   if (v < 0.05) return '0' + u;
   return (v >= 10 ? Math.round(v) : v.toFixed(1)) + u;
 }
+// A change in depth: signed, and zero is "0" rather than a dash.
+const fDelta = (mm) => (mm == null ? '–' : (mm > 0 ? '+' : mm < 0 ? '−' : '') + fSnow(Math.abs(mm)));
 const fRain = (mm) => (mm == null ? '–' : S.lu === 'imp' ? (mm / 25.4).toFixed(2) + '″' : mm.toFixed(1) + ' mm');
 const fElev = (m) => (m == null ? '–' : S.lu === 'imp' ? (Math.round((m * 3.28084) / 100) * 100).toLocaleString('en-US') + ' ft' : (Math.round(m / 50) * 50).toLocaleString('en-US') + ' m');
 const fWind = (k) => (k == null ? '–' : S.lu === 'imp' ? Math.round(k / 1.609) + ' mph' : Math.round(k) + ' km/h');
@@ -203,6 +205,7 @@ const CARD_IC = {
   food: '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/>',
   wear: '<path d="M20.38 3.46L16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z"/>',
   outlook: '<path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M19.07 4.93L4.93 19.07"/>',
+  obs: '<path d="M2 20h20M6 20V10M10 20V4M14 20v-8M18 20v-5"/>',
   rcams: '<path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>',
   links: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6M10 14L21 3"/>',
   list: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>',
@@ -448,6 +451,8 @@ function viewVerdict() {
   const day = L.dayKey(dm);
   const strip = L.departureStrip(S.data, d, S.ix, day, S.direction, Date.now(), S.vehicle);
   const win = L.bestWindow(strip);
+  // On the way home: the last departure the forecast still calls clear, when later is worse.
+  const last = S.direction === 'back' ? L.lastClear(strip) : null;
   const pick = S.depart !== 'now';
   const ends = S.direction === 'out' ? [d.route.points[0], d.route.points.find((p) => p.id === d.route.townPoint)] : [d.route.points.find((p) => p.id === d.route.townPoint), d.route.points[0]];
 
@@ -485,7 +490,7 @@ function viewVerdict() {
     const sel = pick ? S.depart.h === s.h : L.hourOf(dm) === s.h;
     return `<button data-act="hour" data-v="${s.h}" class="${s.past ? 'past' : s.level}${s.heavy && !s.past ? ' heavy' : ''} ${sel ? 'sel' : ''}" ${s.past ? 'disabled' : ''} title="${fHour(s.h)}"><i></i><span>${s.h % 3 === 0 ? fHour(s.h) : ''}</span>${hasDrive ? `<span class="dr">${s.h % 3 === 0 && s.drive && !s.past ? fDur(s.drive.sec, true) : ''}</span>` : ''}</button>`;
   }).join('')}</div>
-  <p class="note"><b>${win ? `${t('bestWin')}: ${fHour(win.from)} – ${fHour(win.to + 1)}` : t('noWin')}</b> · ${t('stripHint')}${hasDrive ? ' ' + t('stripDrive') : ''}</p>`;
+  <p class="note"><b>${win ? `${t('bestWin')}: ${fHour(win.from)} – ${fHour(win.to + 1)}` : t('noWin')}${last?.h != null ? ` · ${t('lastOk', { h: fHour(last.h) })}` : ''}</b> · ${t('stripHint')}${hasDrive ? ' ' + t('stripDrive') : ''}</p>`;
 
   const along = `<div class="tablewrap"><table><thead><tr><th></th><th>${t('time')}</th><th>${t('temp')}</th><th>${t('snowRate')}</th><th>${t('snowLevel')}</th><th>${t('gust')}</th></tr></thead><tbody>${ev.stops.map((s) => `<tr>
       <th>${esc(nm(s.point.name))}<small>${fElev(s.elevM)}</small></th><td>${fTime(s.ms)}</td>${s.missing ? `<td colspan="4" class="muted">${t('noData')}</td>` : `<td>${fT0(s.temp)}</td><td class="${s.snow >= L.TH.snowHeavy ? 'bad' : s.snow >= L.TH.snowLight ? 'warn' : ''}">${s.snow > 0 ? fSnow(s.snow) + '/h' : s.qpf > 0.1 ? '🌧' : '–'}</td><td>${fElev(s.snowLevel)}</td><td>${fWind(s.gust)}</td>`}</tr>`).join('')}</tbody></table></div>`;
@@ -504,7 +509,7 @@ function weekHtml() {
     const wk = L.weekOverview(S.data, d, S.ix, dir, now, 5, 21, S.vehicle);
     const span = wk.hi - wk.lo;
     const ends = dir === 'out' ? [d.route.points[0], town] : [town, d.route.points[0]];
-    const rows = wk.rows.map((r) => `<div class="wkrow"><div class="wklab"><b>${fDay(r.day)}</b><small>${r.best ? `${fHour(r.best.h)} ${fDur(r.best.drive.sec, true)}` : ''}</small></div><div class="wkbars" role="group" aria-label="${fDay(r.day)}">${r.cells.map((c) => {
+    const rows = wk.rows.map((r) => `<div class="wkrow"><div class="wklab"><b>${fDay(r.day)}</b><small>${r.best ? `${fHour(r.best.h)} ${fDur(r.best.drive.sec, true)}` : ''}</small>${dir === 'back' ? `<small class="wklast">${r.last ? t('wkLast', { h: fHour(r.last.h) }) : ''}</small>` : ''}</div><div class="wkbars" role="group" aria-label="${fDay(r.day)}">${r.cells.map((c) => {
       if (c.none) return '<span></span>';
       const drive = c.drive && !c.past;
       const pct = drive ? Math.round(30 + 70 * (span > 60 ? (c.drive.sec - wk.lo) / span : 0.5)) : 30;
@@ -514,7 +519,7 @@ function weekHtml() {
     }).join('')}</div></div>`).join('');
     return `<h3 class="wkdir">${t(dir)} · ${esc(nm(ends[0].name))} → ${esc(nm(ends[1].name))}${wk.lo == null ? '' : `<span>${t('driveLabel')} ${fDur(wk.lo, true)} – ${fDur(wk.hi, true)}</span>`}</h3><div class="wk">${head}${rows}</div>`;
   };
-  return block('out') + block('back') + `<div class="legend"><span><i class="lg ok"></i>${t('wkOk')}</span><span><i class="lg caution"></i>${t('wkCaution')}</span><span><i class="lg caution heavy"></i>${t('wkHeavy')}</span><span><i class="lg nogo"></i>${t('wkNogo')}</span></div><p class="note">${t(d.driveTimes === 'maps' ? 'wkHintMaps' : 'wkHint')}</p>`;
+  return block('out') + block('back') + `<div class="legend"><span><i class="lg ok"></i>${t('wkOk')}</span><span><i class="lg caution"></i>${t('wkCaution')}</span><span><i class="lg caution heavy"></i>${t('wkHeavy')}</span><span><i class="lg nogo"></i>${t('wkNogo')}</span></div><p class="note">${t(d.driveTimes === 'maps' ? 'wkHintMaps' : 'wkHint')} ${t('wkLastHint')}</p>`;
 }
 
 // ----- weather -----
@@ -528,7 +533,7 @@ function viewWeather() {
   const days = L.daily(S.data, S.ix, S.wxPoint);
   const maxSnow = Math.max(25, ...days.map((x) => x.snow));
   const dailyHtml = `<div class="tablewrap"><table class="daily"><thead><tr><th>${t('day')}</th><th>${t('hiLo')}</th><th class="wide">${t('snow')}</th><th>${t('snowLevel')}</th><th>${t('ratio')}</th><th>${t('gust')}</th><th>${t('precip')}</th></tr></thead><tbody>${days.map((x) => `<tr>
-    <th>${fDay(x.day)}</th><td>${fT0(x.hi)} / ${fT0(x.lo)}</td>
+    <th>${fDay(x.day)}${x.h0 >= 3 ? `<small>${t('fromH', { h: fHour(x.h0) })}</small>` : x.h1 < 21 ? `<small>${t('toH', { h: fHour(x.h1) })}</small>` : ''}</th><td>${fT0(x.hi)} / ${fT0(x.lo)}</td>
     <td class="wide"><div class="bar"><i style="width:${Math.round((x.snow / maxSnow) * 100)}%"></i><span>${x.snow > 0 ? fSnow(x.snow) : '–'}</span></div></td>
     <td>${x.slLo == null ? '–' : x.slHi - x.slLo < 150 ? fElev(x.slLo) : `${fElev(x.slLo).replace(/ \w+$/, '')}–${fElev(x.slHi)}`}</td><td>${x.ratio ? Math.round(x.ratio) + ':1' : '–'}</td><td>${fWind(x.gust)}</td><td>${x.qpf >= 0.1 ? fRain(x.qpf) : '–'}</td></tr>`).join('')}</tbody></table></div>
     <p class="note">${t('ratioNote')}</p>`;
@@ -654,7 +659,15 @@ function viewResort() {
     : `<button class="load" data-act="rcam" data-v="${i}">▶ ${t('camLoad')}</button>`}<figcaption>${esc(nm(c.name))}</figcaption></figure>`).join('')}</div>`;
   const k = d.resort.links;
   const links = `<div class="links"><a href="${k.lifts}" target="_blank" rel="noopener">${t('lifts')} ↗</a><a href="${k.snow}" target="_blank" rel="noopener">${t('snowReport')} ↗</a><a href="${k.cams}" target="_blank" rel="noopener">${t('allCams')} ↗</a></div>`;
-  return card('outlook', `${esc(nm(d.name))} · ${t('outlook')}`, outlook) + card('rcams', t('resortCams'), cams) + card('links', t('official'), links);
+  // Measured snow at the SNOTEL stations nearby, next to the forecast above.
+  const sn = S.data.snotel?.stations || [];
+  const snAt = Math.max(0, ...sn.map((x) => x.at || 0));
+  const cfg = (id) => (d.resort.snotel || []).find((x) => x.id === id);
+  const obs = snAt ? `<div class="tablewrap"><table class="daily"><thead><tr><th>${t('obsStation')}</th><th>${t('obsDepth')}</th><th>${t('obs24')}</th><th>${t('obs48')}</th><th>${t('obsWater')}</th><th>${t('temp')}</th></tr></thead><tbody>${sn.filter((x) => x.at && cfg(x.id)).map((x) => `<tr>
+    <th>${esc(cfg(x.id).name)}<small>${esc(nm(cfg(x.id).where))} · ${fElev(cfg(x.id).elevFt / 3.28084)}</small></th><td>${fSnow(x.depth)}</td><td>${fDelta(x.d24)}</td><td>${fDelta(x.d48)}</td><td>${x.water24 == null ? '–' : fRain(Math.max(0, x.water24))}</td><td>${fT0(x.temp)}</td></tr>`).join('')}</tbody></table></div><p class="note">${t('obsNote', { when: fWhen(snAt) })}</p>` : `<p class="muted">${t('obsNone')}</p>`;
+  const stObs = S.data.status.snotel;
+  const obsCard = (d.resort.snotel || []).length ? card('obs', `${t('obsTitle')} · SNOTEL`, obs, stObs?.ok === false ? `<span class="tag bad">${stObs.dataAt ? t('srcStaleTag', { v: fAgo(stObs.dataAt) }) : t('loadFail')}</span>` : '') : '';
+  return card('outlook', `${esc(nm(d.name))} · ${t('outlook')}`, outlook) + obsCard + card('rcams', t('resortCams'), cams) + card('links', t('official'), links);
 }
 
 // ----- list -----

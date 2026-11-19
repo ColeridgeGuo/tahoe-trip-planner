@@ -76,6 +76,12 @@ export const DESTINATIONS = [
       basePoint: 'base',
       windLifts: { zh: 'Gondola 和山顶缆车', en: 'Gondola and summit lifts' }, // what a strong summit wind stops first
       summitPoint: 'summit',
+      // SNOTEL stations whose measured snow the resort tab shows (NRCS; id is the station triplet, `where` says
+      // where the station is relative to the resort).
+      snotel: [
+        { id: '518:CA:SNTL', name: 'Heavenly Valley', where: { zh: '雪场山上', en: 'on the mountain' }, elevFt: 8540 },
+        { id: '463:CA:SNTL', name: 'Echo Peak', where: { zh: '垭口附近', en: 'near the pass' }, elevFt: 7650 },
+      ],
       cams: [
         { name: { zh: 'Tram 缆车', en: 'Tram' }, embed: 'https://player.brownrice.com/embed/heavenlytram' },
         { name: { zh: 'Gondola 中站', en: 'Gondola mid-station' }, embed: 'https://player.brownrice.com/embed/heavenlymidstation' },
@@ -148,6 +154,9 @@ export const DESTINATIONS = [
       basePoint: 'town',
       windLifts: { zh: '高处缆车', en: 'Upper lifts' },
       summitPoint: 'summit',
+      snotel: [
+        { id: '1067:CA:SNTL', name: 'Carson Pass', where: { zh: '雪场以东 5 公里', en: '3 mi east of the resort' }, elevFt: 8360 },
+      ],
       cams: [
         { name: { zh: 'Cornice', en: 'Cornice' }, embed: 'https://player.brownrice.com/embed/kirkwoodcornice' },
       ],
@@ -218,6 +227,10 @@ export const DESTINATIONS = [
       basePoint: 'town',
       windLifts: { zh: 'Gondola 和山顶缆车', en: 'Gondola and summit lifts' },
       summitPoint: 'summit',
+      snotel: [
+        { id: '834:CA:SNTL', name: 'Truckee #2', where: { zh: '雪场西北 6 公里，低处', en: '4 mi northwest, low down' }, elevFt: 6500 },
+        { id: '784:CA:SNTL', name: 'Palisades Tahoe', where: { zh: '西南 16 公里，高处', en: '10 mi southwest, high up' }, elevFt: 8010 },
+      ],
       cams: [
         { name: { zh: 'Village 村', en: 'Village' }, embed: 'https://player.brownrice.com/embed/northstarvillage' },
         { name: { zh: '半山 (Tahoe Zephyr)', en: 'Mid-mountain (Tahoe Zephyr)' }, embed: 'https://player.brownrice.com/embed/northstarmidmountain' },

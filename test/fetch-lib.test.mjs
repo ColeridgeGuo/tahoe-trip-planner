@@ -1,7 +1,7 @@
 // What the fetch script does with a failed source, and how it reads the feeds (scripts/lib.mjs).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { HOURS, MAX_CARRY_MS, carried, source, shiftWeather, carriedWeather, hourly, ptToMs, stopTimes, PAST_H, pastSnow, HISTORY_MAX, addHistory, quotaUsed, dedupe, streamUrl, liveStreams, STREAM_TRIES, MONTHLY_QUOTA, LIVE_EVERY_MS, NEAR_H, MID_EVERY_MS, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours } from '../scripts/lib.mjs';
+import { HOURS, MAX_CARRY_MS, carried, source, shiftWeather, carriedWeather, hourly, ptToMs, stopTimes, PAST_H, pastSnow, HISTORY_MAX, addHistory, quotaUsed, dedupe, streamUrl, liveStreams, STREAM_TRIES, MONTHLY_QUOTA, LIVE_EVERY_MS, NEAR_H, MID_EVERY_MS, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours, snotelStations } from '../scripts/lib.mjs';
 
 const H = 36e5;
 const MIN = 6e4;
@@ -372,5 +372,26 @@ describe('camera live streams', () => {
     assert.deepEqual(await liveStreams(cams, async () => { n++; return 403; }), cams);
     assert.equal(n, 3 * STREAM_TRIES);
     assert.deepEqual(await liveStreams(cams, async () => 0), cams);
+  });
+});
+
+describe('measured snow from SNOTEL', () => {
+  const at = (h) => `2026-01-${String(10 + Math.floor(h / 24)).padStart(2, '0')} ${String(h % 24).padStart(2, '0')}:00`;
+  const series = (code, f) => ({ stationElement: { elementCode: code }, values: Array.from({ length: 73 }, (_, h) => ({ date: at(h), value: f(h) })) });
+  const json = [{ stationTriplet: '518:CA:SNTL', data: [series('SNWD', (h) => (h < 48 ? 10 : 10 + (h - 48) / 2)), series('WTEQ', (h) => 2 + (h > 60 ? 1.5 : 0)), series('TOBS', () => 23)] }];
+  test('latest depth, its change over 24 and 48 hours, water in 24 hours and temperature, in metric', () => {
+    const [s] = snotelStations(json, [{ id: '518:CA:SNTL' }]);
+    assert.equal(s.at, Date.UTC(2026, 0, 13, 8)); // 00:00 PST on the 13th
+    assert.deepEqual([s.depth, s.d24, s.d48, s.water24, s.temp], [559, 305, 305, 38, -5]);
+  });
+  test('gaps in the readings: the latest good one is used, and a change with nothing to compare to is null', () => {
+    const holes = [{ stationTriplet: '518:CA:SNTL', data: [{ stationElement: { elementCode: 'SNWD' }, values: [{ date: at(70), value: 20 }, { date: at(71), value: null }, { date: at(72) }] }] }];
+    const [s] = snotelStations(holes, [{ id: '518:CA:SNTL' }]);
+    assert.deepEqual([s.depth, s.d24, s.d48, s.water24, s.temp], [508, null, null, null, null]);
+  });
+  test('a station missing from the answer keeps its place with no readings', () => {
+    const list = snotelStations(json, [{ id: '463:CA:SNTL' }, { id: '518:CA:SNTL' }]);
+    assert.deepEqual(list.map((s) => [s.id, s.at == null]), [['463:CA:SNTL', true], ['518:CA:SNTL', false]]);
+    assert.equal(snotelStations(null, [{ id: 'x' }])[0].depth, null);
   });
 });
