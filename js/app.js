@@ -711,6 +711,18 @@ async function playLive(i) {
   } else fail();
 }
 $('#dlg').addEventListener('close', stopLive);
+// A click outside the camera dialog closes it. The dialog element covers only its own box, so a click that
+// lands on it but outside that box is on the backdrop. The press must start outside too, so dragging the
+// video's controls out of the box and letting go there does not close it.
+let dlgDownOutside = false;
+const outsideDlg = (e) => {
+  const d = $('#dlg');
+  if (e.target !== d || !d.querySelector('.camdlg')) return false;
+  const r = d.getBoundingClientRect();
+  return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+};
+$('#dlg').addEventListener('pointerdown', (e) => { dlgDownOutside = outsideDlg(e); });
+$('#dlg').addEventListener('click', (e) => { if (dlgDownOutside && outsideDlg(e)) $('#dlg').close(); dlgDownOutside = false; });
 
 // ---------- events ----------
 const setPref = (k, v) => { S[k] = v; store.set(k, v); };
