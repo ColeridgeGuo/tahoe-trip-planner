@@ -621,6 +621,8 @@ function viewList() {
 // ----- dialogs -----
 // A token typed but not yet saved. Kept so that redrawing the dialog, or closing it by a click outside, does not lose it.
 let tokenDraft = '';
+// Every dialog closes the same way: the × pinned to its top right corner, a click outside, or Escape.
+const dhead = (title) => `<div class="dhead"><h2>${title}</h2><button class="icon" aria-label="${t('close')}">${IC.x}</button></div>`;
 // Closing the settings with such a token asks first, inside the dialog, whether to save it.
 let closeAsk = false;
 function closeDlg() {
@@ -633,7 +635,7 @@ function closeDlg() {
 function openSettings() {
   const v = S.vehicle;
   const chk = (k, label) => `<label class="chk"><input type="checkbox" data-change="veh" data-v="${k}" ${v[k] ? 'checked' : ''}>${label}</label>`;
-  $('#dlg').innerHTML = `<form method="dialog"><div class="dhead"><h2>${t('settings')}</h2><button class="icon" aria-label="${t('close')}">${IC.x}</button></div>
+  $('#dlg').innerHTML = `<form method="dialog">${dhead(t('settings'))}
     <h3>${t('theme')}</h3>${seg('themeSet', S.theme, [['auto', t('th.auto')], ['light', t('th.light')], ['dark', t('th.dark')]])}
     <h3>${t('lang')}</h3>${seg('lang', S.lang, [['zh', '中', t('tip.zh')], ['en', 'EN', t('tip.en')]])}
     <h3>${t('units')}</h3><div class="segs">${seg('tu', S.tu, [['C', '°C', t('tip.C')], ['F', '°F', t('tip.F')]])}${seg('lu', S.lu, [['imp', 'in·ft', t('tip.imp')], ['met', 'cm·m', t('tip.met')]])}</div>
@@ -643,7 +645,7 @@ function openSettings() {
       : `<div class="add"><input id="token" type="password" autocomplete="off" placeholder="${t('tokenPh')}" value="${esc(tokenDraft)}"><button type="button" data-act="connect">${t('save')}</button></div>`}
     <h3>${t('al.title')}</h3><p class="note">${t('al.help')}</p>${alertSettings()}
     ${closeAsk && !list.hasToken() ? `<div class="confirm" role="alert"><p>${t('unsaved')}</p><button type="button" data-act="connect">${t('save')}</button><button type="button" class="ghost" data-act="discard">${t('discard')}</button></div>`
-      : `<button class="ghost close">${t('close')}</button>`}</form>`;
+      : ''}</form>`;
   if (!$('#dlg').open) $('#dlg').showModal();
 }
 // Why the checklist sync failed, in words: the token was rejected, lacks the gist permission, or GitHub was unreachable.
@@ -666,9 +668,9 @@ function alertSettings() {
 function openCam(i) {
   const c = S.data.cams[i];
   stopLive();
-  $('#dlg').innerHTML = `<form method="dialog" class="camdlg"><h2>${esc(c.name)} <small>${esc(c.place)}</small></h2><div id="camView"><img alt="${esc(c.name)}" src="${esc(c.img)}?t=${Date.now()}"></div>
+  $('#dlg').innerHTML = `<form method="dialog" class="camdlg">${dhead(`${esc(c.name)} <small>${esc(c.place)}</small>`)}<div id="camView"><img alt="${esc(c.name)}" src="${esc(c.img)}?t=${Date.now()}"></div>
     <p class="note" id="camMsg" role="status" hidden></p>
-    <div class="links">${c.stream ? `<button type="button" id="camLive" data-act="camLive" data-v="${i}">▶ ${t('openStream')}</button>` : ''}</div><button class="ghost close">${t('close')}</button></form>`;
+    <div class="links">${c.stream ? `<button type="button" id="camLive" data-act="camLive" data-v="${i}">▶ ${t('openStream')}</button>` : ''}</div></form>`;
   $('#dlg').showModal();
 }
 

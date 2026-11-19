@@ -278,6 +278,10 @@ select{appearance:none;-webkit-appearance:none;cursor:pointer;padding-right:1.87
 .confirm p{margin:0;flex:1 1 100%;font-size:0.875rem;font-weight:600}
 .confirm button{border-radius:0.5625rem;padding:0.4375rem 0.75rem;font-size:0.8125rem;margin:0}
 .confirm button:not(.ghost){border:1px solid var(--accent);background:var(--accent);color:var(--bg);font-weight:600}
-/* settings title and its close button stay in view while the dialog scrolls */
+/* a dialog's title and its close button stay in view while the dialog scrolls */
 .dhead{position:sticky;top:-1.125rem;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:0.75rem;margin:-1.125rem -1.125rem 0;padding:1.125rem 1.125rem 0.5rem;background:var(--card)}
 .dhead h2{margin:0}
+.dhead h2{min-width:0}
+/* large enough to hit with a thumb; the negative margin keeps the title row from growing */
+.dhead .icon{flex:none;width:2.75rem;height:2.75rem;margin:-0.375rem -0.375rem -0.375rem 0;border-radius:0.75rem}
+.dhead .icon svg{width:1.25rem;height:1.25rem}
