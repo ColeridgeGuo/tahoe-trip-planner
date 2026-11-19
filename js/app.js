@@ -916,7 +916,8 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
 window.addEventListener('online', () => { loadData(); if (list.hasToken()) list.sync(); });
 if ('serviceWorker' in navigator) {
   // On the very first visit the worker takes over after the data was already fetched; fetch once more so a copy is saved.
-  navigator.serviceWorker.addEventListener('controllerchange', () => loadData());
+  // A request still on its way was sent before the worker took over and is not saved, so wait for it first.
+  navigator.serviceWorker.addEventListener('controllerchange', () => Promise.resolve(loading?.p).then(() => loadData()));
   navigator.serviceWorker.register('sw.js').catch((e) => console.warn('offline', e));
 }
 
