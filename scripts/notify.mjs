@@ -80,6 +80,12 @@ export function decide(told, cur, plan, dest, lang, nowMs = Date.now()) {
   const due = summariesDue(plan, nowMs);
   const flags = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v));
   const driveTxt = cur.sec != null ? t('al.nDriveNow', { v: fDur(cur.sec) }) + (cur.snowMin ? t('al.nDriveSnow', { a: cur.snowMin[0], b: cur.snowMin[1] }) : '') : '';
+  // The deadline for the drive home only counts while it is still ahead. Once the hour last reported has
+  // gone by, or the hours it is looked for in (5-21 h) are over, the strip has nothing left to judge and
+  // planState drops it: that is the clock moving on, not the forecast clearing, so it is held as last said.
+  const day0 = Math.floor(plan.departMs / 36e5) * 36e5 - hourOf(plan.departMs) * 36e5;
+  const nowH = (nowMs - day0) / 36e5;
+  if (told && (nowH > 21 || (told.late >= 0 && nowH >= told.late + 1))) cur = { ...cur, late: told.late };
   // The deadline for the drive home (planState `late`), in words.
   const fHour = (h) => (lang === 'zh' ? `${h}时` : `${h % 12 || 12}${h < 12 ? 'am' : 'pm'}`);
   const lateTxt = (v) => (v == null ? t('al.nLateOff') : v < 0 ? t('al.nLateNone') : t('al.nLate', { h: fHour(v) }));

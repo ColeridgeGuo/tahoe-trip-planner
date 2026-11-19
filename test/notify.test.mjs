@@ -323,6 +323,14 @@ describe('the deadline for the drive home', () => {
   test('a source failed on this run: the deadline is held', () => {
     assert.equal(say(told({ late: 15 }), cur({ partial: ['weather'] }), back()), null);
   });
+  test('time passing is not the forecast clearing: nothing is sent once the deadline or the day is behind', () => {
+    const p = back({ departMs: NOW + 17 * H }); // leaving at 23:00
+    const at = (t, c, h) => decide(t, c, p, dest, 'zh', NOW - 6 * H + h * H);
+    assert.equal(at(told({ late: 14, pre: true }), cur({ late: -1 }), 15.5), null); // 14 h has gone by
+    assert.equal(at(told({ late: 14, pre: true }), cur(), 22), null); // nothing left to judge after 21 h
+    assert.equal(at(told({ late: -1, pre: true }), cur(), 22), null);
+    assert.ok(at(told({ late: 14 }), cur({ late: 11 }), 9).body.includes('11时')); // still ahead: reported
+  });
   test('both languages fill every placeholder', () => {
     for (const lang of ['zh', 'en']) for (const late of [14, -1, undefined]) { const m = say(told({ late: 9 }), cur({ late }), back(), lang); assert.ok(!/undefined|\{\w+\}/.test(m.body), m.body); }
   });
