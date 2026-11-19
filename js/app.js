@@ -620,6 +620,15 @@ function viewList() {
 // ----- dialogs -----
 // A token typed but not yet saved. Kept so that redrawing the dialog, or closing it by a click outside, does not lose it.
 let tokenDraft = '';
+// Closing the settings with such a token asks first, inside the dialog, whether to save it.
+let closeAsk = false;
+function closeDlg() {
+  const d = $('#dlg');
+  if (!d.querySelector('#token') || !tokenDraft.trim()) return d.close();
+  closeAsk = true;
+  openSettings();
+  d.querySelector('.confirm').scrollIntoView({ block: 'nearest' });
+}
 function openSettings() {
   const v = S.vehicle;
   const chk = (k, label) => `<label class="chk"><input type="checkbox" data-change="veh" data-v="${k}" ${v[k] ? 'checked' : ''}>${label}</label>`;
@@ -632,7 +641,8 @@ function openSettings() {
     ${list.hasToken() ? `<p><span class="tag ${list.status()}">${t('sync.' + list.status())}</span> <button type="button" class="ghost" data-act="disconnect">${t('disconnect')}</button></p>${list.status() === 'err' ? `<p class="note">${syncWhy()}</p>` : ''}`
       : `<div class="add"><input id="token" type="password" autocomplete="off" placeholder="${t('tokenPh')}" value="${esc(tokenDraft)}"><button type="button" data-act="connect">${t('save')}</button></div>`}
     <h3>${t('al.title')}</h3><p class="note">${t('al.help')}</p>${alertSettings()}
-    <button class="ghost close">${t('close')}</button></form>`;
+    ${closeAsk && !list.hasToken() ? `<div class="confirm" role="alert"><p>${t('unsaved')}</p><button type="button" data-act="connect">${t('save')}</button><button type="button" class="ghost" data-act="discard">${t('discard')}</button></div>`
+      : `<button class="ghost close">${t('close')}</button>`}</form>`;
   if (!$('#dlg').open) $('#dlg').showModal();
 }
 // Why the checklist sync failed, in words: the token was rejected, lacks the gist permission, or GitHub was unreachable.
@@ -740,7 +750,11 @@ const outsideDlg = (e) => {
   return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
 };
 $('#dlg').addEventListener('pointerdown', (e) => { dlgDownOutside = outsideDlg(e); });
-$('#dlg').addEventListener('click', (e) => { if (dlgDownOutside && outsideDlg(e)) $('#dlg').close(); dlgDownOutside = false; });
+$('#dlg').addEventListener('click', (e) => { if (dlgDownOutside && outsideDlg(e)) closeDlg(); dlgDownOutside = false; });
+// Escape and the dialog's own close button go the same way.
+$('#dlg').addEventListener('cancel', (e) => { e.preventDefault(); closeDlg(); });
+$('#dlg').addEventListener('submit', (e) => { e.preventDefault(); closeDlg(); });
+$('#dlg').addEventListener('close', () => { closeAsk = false; });
 
 // ---------- events ----------
 const setPref = (k, v) => { S[k] = v; store.set(k, v); };
@@ -791,7 +805,8 @@ document.addEventListener('click', (e) => {
     case 'del': list.remove(v); return;
     case 'clearDone': list.clearDone(); return;
     case 'drive': S.vehicle.drive = v; store.set('vehicle', S.vehicle); openSettings(); break;
-    case 'connect': { const tok = $('#token').value; if (tok.trim()) { tokenDraft = ''; list.connect(tok).then(openSettings); } return; }
+    case 'connect': { const tok = $('#token').value; if (tok.trim()) { const ask = closeAsk; tokenDraft = ''; closeAsk = false; list.connect(tok).then(() => (ask && list.status() !== 'err' ? $('#dlg').close() : openSettings())); } return; }
+    case 'discard': tokenDraft = ''; closeAsk = false; $('#dlg').close(); return;
     case 'disconnect': list.disconnect(); return openSettings();
     case 'alertOn': { // asks for notification permission, so it has to start inside this tap
       const h = pickedHour();

@@ -273,3 +273,8 @@ select{appearance:none;-webkit-appearance:none;cursor:pointer;padding-right:1.87
 /* the resort picker is the page's main choice: full-strength text, lined up with the route beside it */
 #title select{color:var(--ink);font-weight:600;font-size:0.875rem}
 .where{align-items:center}
+/* asks before the settings close with an unsaved token */
+.confirm{display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;margin-top:0.875rem;padding:0.75rem;border-radius:0.625rem;background:var(--soft)}
+.confirm p{margin:0;flex:1 1 100%;font-size:0.875rem;font-weight:600}
+.confirm button{border-radius:0.5625rem;padding:0.4375rem 0.75rem;font-size:0.8125rem;margin:0}
+.confirm button:not(.ghost){border:1px solid var(--accent);background:var(--accent);color:var(--bg);font-weight:600}
