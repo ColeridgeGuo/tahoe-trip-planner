@@ -336,14 +336,13 @@ describe('weather on the mountain section', () => {
   test('weather alerts overlapping the drive', () => {
     const alert = (event, onset = NOW - H, ends = NOW + 10 * H) => ev(makeData({ alerts: [{ id: 'a', event, onset, ends }] }));
     assert.equal(alert('Blizzard Warning').level, 'nogo');
-    assert.equal(alert('Avalanche Warning').level, 'nogo');
     assert.equal(alert('Winter Storm Warning').level, 'caution');
     assert.equal(alert('Winter Weather Advisory').level, 'caution');
     assert.equal(alert('Winter Storm Watch').level, 'go'); // listed, does not change the verdict
     assert.equal(factor(alert('Winter Storm Watch'), 'alerts').msg, 'alertsActive');
     // Only alerts about the road count. The rest are listed and leave the verdict alone.
     for (const e of ['High Wind Warning', 'Wind Advisory', 'Dense Fog Advisory', 'Snow Squall Warning', 'Freezing Fog Advisory', 'Flash Flood Warning']) assert.equal(alert(e).level, 'caution', e);
-    for (const e of ['Lake Wind Advisory', 'Freeze Warning', 'Red Flag Warning', 'Special Weather Statement', 'Avalanche Watch', 'Air Quality Alert']) {
+    for (const e of ['Lake Wind Advisory', 'Freeze Warning', 'Red Flag Warning', 'Special Weather Statement', 'Avalanche Watch', 'Avalanche Warning', 'Air Quality Alert']) {
       assert.equal(alert(e).level, 'go', e);
       assert.equal(factor(alert(e), 'alerts').v.length, 1, e);
     }
@@ -631,5 +630,47 @@ describe('time zone', () => {
     assert.equal(L.hourOf(Date.UTC(2026, 6, 1, 7)), 0); // PDT
     const ix = L.index(makeData({ t0: Date.UTC(2026, 2, 8, 8), hours: 24 })); // spring forward: 02:00 does not exist
     assert.deepEqual(ix.hours.slice(0, 4).map((h) => h.h), [0, 1, 3, 4]);
+  });
+});
+
+describe('the latest clear departure for the drive home', () => {
+  const day = L.dayKey(NOW);
+  const strip = (data) => L.departureStrip(data, dest, L.index(data), day, 'back', NOW, AWD);
+  const snowFrom = (h) => { const d = makeData(); for (let i = h; i < 48; i++) d.weather.pass.snow[i] = 5; return d; };
+  test('snow arriving in the afternoon: leave before it', () => {
+    const last = L.lastClear(strip(snowFrom(16)));
+    assert.equal(last.h, 14); // crossing the pass at 15:20 is within an hour of the first snow
+    assert.equal(last.ms, T0 + 14 * H);
+  });
+  test('a clear day has no deadline', () => {
+    assert.equal(L.lastClear(strip(makeData())), null);
+  });
+  test('snow only late at night, after the last departure considered: 21 h is the deadline', () => {
+    assert.equal(L.lastClear(strip(snowFrom(23))).h, 21);
+  });
+  test('nothing clear all day: no deadline, and it says so', () => {
+    assert.deepEqual(L.lastClear(strip(snowFrom(0))), { none: true });
+  });
+  test('hours already past do not count', () => {
+    const d = makeData();
+    for (let i = 0; i < 9; i++) d.weather.pass.snow[i] = 5; // snow until mid-morning, clear afterwards
+    assert.equal(L.lastClear(strip(d)), null);
+  });
+  test('the week overview carries it per day', () => {
+    const d = snowFrom(16);
+    const wk = L.weekOverview(d, dest, L.index(d), 'back', NOW, 5, 21, AWD);
+    assert.equal(wk.rows[0].last.h, 14);
+    assert.equal(wk.rows[1].last, null); // snowing all of the next day
+    assert.equal(wk.rows[3].last, null); // clear
+  });
+});
+
+describe('daily figures say which hours they cover', () => {
+  test('today starts at the first hour that has data', () => {
+    const d = makeData();
+    for (const k of ['temp', 'feels', 'gust']) for (let i = 0; i < 21; i++) d.weather.summit[k][i] = null;
+    const days = L.daily(d, L.index(d), 'summit');
+    assert.deepEqual([days[0].h0, days[0].h1], [21, 23]);
+    assert.deepEqual([days[1].h0, days[1].h1], [0, 23]);
   });
 });

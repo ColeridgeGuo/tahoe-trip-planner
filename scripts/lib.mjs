@@ -68,6 +68,7 @@ export function pastSnow(prev, id, t0) {
 //   d: the live TomTom drive time out / back in seconds, and m: of that, the minutes on the mountain section
 //      (between the first route pin and the town), the longest seen in the hour. For working out how much
 //      snow and chain control really add to the drive. Absent on rows from before these were kept.
+//   sd: measured snow depth in mm at the destination's SNOTEL stations (config order), where there are any.
 export const HISTORY_MAX = 24 * 60; // about two months
 export function addHistory(hist, row, points) {
   const rows = Array.isArray(hist?.rows) ? hist.rows : [];
@@ -77,6 +78,38 @@ export function addHistory(hist, row, points) {
   const merged = same ? { ...row, e: hi(same.e, row.e), w: hi(same.w, row.w), ...(same.d || row.d ? { d: his(same.d, row.d), m: his(same.m, row.m) } : {}) } : row;
   return { v: 1, points, rows: [...rows.filter((r) => r.t !== row.t), merged].sort((a, b) => a.t - b.t).slice(-HISTORY_MAX) };
 }
+
+// ---------- measured snow (SNOTEL) ----------
+// NRCS SNOTEL stations report snow depth, snow water equivalent and air temperature every hour, in inches
+// and °F, stamped in Pacific Standard Time all year. From the answer of the AWDB data service for one or
+// more stations, one record per station in metric: the latest depth, how much it changed over the last 24
+// and 48 hours, how much water fell in the last 24 hours (the rise in water equivalent, which unlike depth
+// does not shrink as new snow settles), and the temperature. Null where a figure is missing.
+//   stations: [{ id: '518:CA:SNTL', ... }] from the destination's config; the result keeps their order.
+const IN = 25.4;
+const pstMs = (s) => Date.parse(`${s.replace(' ', 'T')}:00-08:00`);
+export function snotelStations(json, stations) {
+  return stations.map((st) => {
+    const rec = (json || []).find((x) => x.stationTriplet === st.id);
+    const series = (code) => (rec?.data || []).find((d) => d.stationElement?.elementCode === code)?.values?.filter((v) => Number.isFinite(v.value)).map((v) => ({ ms: pstMs(v.date), v: v.value })) || [];
+    const depth = series('SNWD');
+    const swe = series('WTEQ');
+    const temp = series('TOBS');
+    const now = depth.at(-1);
+    if (!now) return { id: st.id, at: null, depth: null, d24: null, d48: null, water24: null, temp: null };
+    // The reading closest to `hours` before the latest one, if there is one within two hours of that moment.
+    const before = (list, hours) => {
+      const want = now.ms - hours * 36e5;
+      const hit = list.reduce((b, x) => (!b || Math.abs(x.ms - want) < Math.abs(b.ms - want) ? x : b), null);
+      return hit && Math.abs(hit.ms - want) <= 2 * 36e5 ? hit.v : null;
+    };
+    const mm = (inches) => (inches == null ? null : Math.round(inches * IN));
+    const diff = (list, hours) => { const a = before(list, hours); const b = before(list, 0); return a == null || b == null ? null : mm(b - a); };
+    const t = before(temp, 0);
+    return { id: st.id, at: now.ms, depth: mm(now.v), d24: diff(depth, 24), d48: diff(depth, 48), water24: diff(swe, 24), temp: t == null ? null : Math.round(((t - 32) / 1.8) * 10) / 10 };
+  });
+}
+export const SNOTEL_EVERY_MS = 50 * 6e4; // the stations report once an hour
 
 // ---------- TomTom quota ----------
 // The free allowance for the Routing API is 20,000 requests a month (about 645 a day). Only what actually

@@ -3,7 +3,7 @@
 import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { DESTINATIONS } from '../js/config.js';
 import { CC_URL, normalizeChain, incidentDir } from '../js/normalize.js';
-import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes, pastSnow, addHistory, quotaUsed, dedupe, streamUrl, liveStreams, incidentRoad, MONTHLY_QUOTA, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours } from './lib.mjs';
+import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes, pastSnow, addHistory, quotaUsed, dedupe, streamUrl, liveStreams, incidentRoad, MONTHLY_QUOTA, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours, snotelStations, SNOTEL_EVERY_MS } from './lib.mjs';
 import { chainFor, roadsOf } from '../js/logic.js';
 
 const UA = 'tahoe-trip-planner (personal trip dashboard, github pages)';
@@ -215,6 +215,19 @@ async function alerts(points) {
   return [...seen.values()].sort((a, b) => a.onset - b.onset);
 }
 
+// ---------- measured snow (SNOTEL) ----------
+// One request for all of a destination's stations, three days of hourly readings. The stations report once
+// an hour, so the last answer is reused until it is SNOTEL_EVERY_MS old.
+async function snotel(stations, prevFile) {
+  const old = prevFile?.snotel;
+  if (old?.at && Date.now() - old.at < SNOTEL_EVERY_MS && old.stations?.length === stations.length && old.stations.every((s, i) => s.id === stations[i].id)) return old;
+  const day = (ms) => new Date(ms - 8 * 36e5).toISOString().slice(0, 10); // station time is PST
+  const q = new URLSearchParams({ stationTriplets: stations.map((s) => s.id).join(','), elements: 'SNWD,WTEQ,TOBS', duration: 'HOURLY', beginDate: `${day(Date.now() - 3 * 864e5)} 00:00`, endDate: `${day(Date.now() + 864e5)} 00:00`, periodRef: 'END', centralTendencyType: 'NONE', returnFlags: 'false' });
+  const list = snotelStations(await get(`https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1/data?${q}`), stations);
+  if (!list.some((s) => s.at)) throw new Error('no readings in the answer');
+  return { at: Date.now(), stations: list };
+}
+
 // ---------- TomTom drive times ----------
 // The key comes from the TOMTOM_KEY secret. Errors are built without the request URL so the key can never
 // end up in the published JSON or the logs.
@@ -345,12 +358,14 @@ for (const dest of DESTINATIONS) {
   const pts = dest.route.points;
   const t0 = Math.floor(Date.now() / 36e5) * 36e5;
   const prev = await published(dest.id);
-  const [ch, cm, cl, inc, al] = await Promise.all([
+  const sn = dest.resort.snotel || [];
+  const [ch, cm, cl, inc, al, obs] = await Promise.all([
     source(status, 'chain', () => chain(f), [], prev),
     source(status, 'cams', () => cams(f), [], prev),
     source(status, 'closures', () => closures(f, dest.route), [], prev),
     source(status, 'incidents', () => incidents(f, dest.route), [], prev),
     source(status, 'alerts', () => alerts(pts.filter((p) => f.alertPoints.includes(p.id))), [], prev),
+    sn.length ? source(status, 'snotel', () => snotel(sn, prev), null, prev) : null,
   ]);
   const weather = {};
   const failed = [];
@@ -380,7 +395,7 @@ for (const dest of DESTINATIONS) {
     ? { ok: false, error: wxErr, at: Date.now(), ...(kept.length ? { dataAt: Math.min(...kept.map((id) => weather[id].at)) } : {}) }
     : { ok: true, at: Date.now() };
   const tomtom = useTT ? quotaUsed(prev?.tomtom, ttCalls) : null;
-  const out = { generatedAt: Date.now(), t0, hours: HOURS, status, chain: ch, closures: cl, incidents: inc, alerts: al, cams: cm, weather, drive: dr, tomtom };
+  const out = { generatedAt: Date.now(), t0, hours: HOURS, status, chain: ch, closures: cl, incidents: inc, alerts: al, cams: cm, weather, drive: dr, tomtom, snotel: obs };
   // What chain control really is this hour, next to what was forecast for it (first destination only: one highway).
   if (dest === DESTINATIONS[0]) {
     const mtn = dest.route.mountainPoints;
@@ -391,7 +406,7 @@ for (const dest of DESTINATIONS) {
     // failure, nor a live reading from before the hour that is being reused because a new one is not due yet.
     const mtnMin = (x, out) => (out ? x.legs.slice(1) : x.legs.slice(0, -1)).reduce((s, l) => s + l.min, 0);
     const live = dr && status.drive.ok && dr.at >= t0 ? { d: [dr.out.sec, dr.back.sec], m: [mtnMin(dr.out, true), mtnMin(dr.back, false)] } : {};
-    history = addHistory(history, { t: t0, e: lv(dest.route.outboundDir), w: lv(dest.route.returnDir), s: now0('snow'), c: now0('temp'), ...live }, mtn);
+    history = addHistory(history, { t: t0, e: lv(dest.route.outboundDir), w: lv(dest.route.returnDir), s: now0('snow'), c: now0('temp'), ...live, ...(obs && status.snotel.ok ? { sd: obs.stations.map((x) => x.depth) } : {}) }, mtn);
     await writeFile(new URL('../data/history.json', import.meta.url), JSON.stringify(history));
   }
   await writeFile(new URL(`../data/${dest.id}.json`, import.meta.url), JSON.stringify(out));

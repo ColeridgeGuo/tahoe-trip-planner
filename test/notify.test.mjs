@@ -294,3 +294,44 @@ describe('TomTom allowance', () => {
     for (const lang of ['zh', 'en']) for (const n of [16100, 20010]) { const m = quotaNote(undefined, tt(n), lang); assert.ok(!/undefined|\{\w+\}/.test(m.title + m.body), m.body); }
   });
 });
+
+describe('the deadline for the drive home', () => {
+  const back = (over = {}) => plan({ direction: 'back', departMs: NOW + 6 * H, ...over });
+  const snowFrom = (h) => { const d = makeData(); for (let i = h; i < 48; i++) d.weather.pass.snow[i] = 5; return d; };
+  test('worked out for the day of a return trip only', () => {
+    assert.equal(state(snowFrom(16), back()).late, 14);
+    assert.equal(state(snowFrom(0), back()).late, -1);
+    assert.equal('late' in state(makeData(), back()), false);
+    assert.equal('late' in state(snowFrom(16)), false); // outbound
+  });
+  test('named when the alert starts, and remembered', () => {
+    const m = say(undefined, cur({ late: 14 }), back());
+    assert.ok(m.body.includes('14时'));
+    assert.equal(m.told.late, 14);
+  });
+  test('appears, moves two hours or goes: one notification; an hour either way: none', () => {
+    assert.ok(say(told(), cur({ late: 15 }), back()).body.includes('15时'));
+    assert.equal(say(told({ late: 15 }), cur({ late: 14 }), back()), null);
+    const moved = say(told({ late: 15 }), cur({ late: 13 }), back());
+    assert.ok(moved.body.includes('13时'));
+    assert.equal(moved.told.late, 13);
+    const gone = say(told({ late: 15 }), cur(), back());
+    assert.ok(gone.body.length > 0);
+    assert.equal('late' in gone.told, false);
+    assert.ok(say(told({ late: 15 }), cur({ late: -1 }), back()).body.includes('5–21'));
+  });
+  test('a source failed on this run: the deadline is held', () => {
+    assert.equal(say(told({ late: 15 }), cur({ partial: ['weather'] }), back()), null);
+  });
+  test('time passing is not the forecast clearing: nothing is sent once the deadline or the day is behind', () => {
+    const p = back({ departMs: NOW + 17 * H }); // leaving at 23:00
+    const at = (t, c, h) => decide(t, c, p, dest, 'zh', NOW - 6 * H + h * H);
+    assert.equal(at(told({ late: 14, pre: true }), cur({ late: -1 }), 15.5), null); // 14 h has gone by
+    assert.equal(at(told({ late: 14, pre: true }), cur(), 22), null); // nothing left to judge after 21 h
+    assert.equal(at(told({ late: -1, pre: true }), cur(), 22), null);
+    assert.ok(at(told({ late: 14 }), cur({ late: 11 }), 9).body.includes('11时')); // still ahead: reported
+  });
+  test('both languages fill every placeholder', () => {
+    for (const lang of ['zh', 'en']) for (const late of [14, -1, undefined]) { const m = say(told({ late: 9 }), cur({ late }), back(), lang); assert.ok(!/undefined|\{\w+\}/.test(m.body), m.body); }
+  });
+});
