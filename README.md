@@ -1,12 +1,13 @@
 # Tahoe Trip Planner
 
-A go / no-go dashboard for driving from the Bay Area to a Tahoe ski resort: chain control, closures, CHP incidents, route weather, what to wear, resort cams and a packing checklist. Static site, no backend.
+A go / no-go dashboard for driving from the Bay Area to a Tahoe ski resort (Heavenly via US-50, Kirkwood via CA-88, Northstar via I-80 and CA-267): chain control, closures, CHP incidents, route weather, what to wear, resort cams and a packing checklist. Static site, no backend.
 
 ## How it works
 
 - `scripts/fetch.mjs` pulls Caltrans (chain control, lane closures, cameras), CHP incidents, NWS gridded forecasts and alerts, and TomTom drive times, and writes `data/<destination>.json`.
 - `.github/workflows/deploy.yml` runs that script and publishes the site to GitHub Pages. Nothing is committed back to the repo.
 - The workflow has no schedule of its own. An external cron-job triggers it every 15 minutes through `workflow_dispatch`, because GitHub's built-in scheduler runs late and unevenly.
+- Only Heavenly (`driveTimes: 'tomtom'` in `js/config.js`) gets drive times from TomTom; it uses the whole free allowance. Kirkwood and Northstar (`driveTimes: 'maps'`) send no TomTom requests: the page uses the route's usual drive time for them and links to Google Maps for the live one (`mapsUrl` in `js/logic.js`, a plain Maps URL, no key and no charge; it cannot carry a departure time, so a later departure is set inside Google Maps). The best-departure hints, drive-time bars and drive-time alerts therefore exist for Heavenly only.
 - Drive times come from TomTom (`TOMTOM_KEY` secret): live every 30 minutes, hourly for the next 24 h (the next 3 hours refreshed hourly, the rest every 12 h), and every 2 h out to 8 days (refreshed once a day). That is about 506 requests a day, or 15,700 of the 20,000 free Routing API requests a month.
 - Each drive time also says when the drive reaches every point along the route (Sacramento, Placerville, Kyburz, Echo Summit), read off the route TomTom returned, so the weather shown for a point is the weather at the moment you are there. This costs no extra requests. A point the chosen route does not pass (TomTom sometimes goes via Stockton instead of Sacramento) is placed between its neighbours.
 - The verdict also counts snow that has already fallen: enough new snow in the 12 or 24 hours before you cross, while it is still freezing, is a caution even when nothing is falling any more (`TH.pack` in `js/logic.js`). The fetch script keeps the last 24 hours of snowfall (`snowPast`) for this.
@@ -58,4 +59,8 @@ No dependencies (Node 22+). They cover the verdict, chain control per vehicle, c
 
 ## Add a destination
 
-Append an entry to `DESTINATIONS` in `js/config.js` (route points, highways, resort cams). Thresholds for the verdict live in `TH` in `js/logic.js`.
+Append an entry to `DESTINATIONS` in `js/config.js` (route points, highways, resort cams), add its map line as `js/routes/<id>.js`, and list that file in `SHELL` in `sw.js`. Thresholds for the verdict live in `TH` in `js/logic.js`.
+
+- `drivePins` are the waypoints TomTom is routed through. Use only points on the mountain road, never a town centre. On a divided freeway give the point a `pin` with a spot on each carriageway (see Donner Summit).
+- A trip that uses a second highway at the end lists it under `route.also` with its own directions (CA-267 for Northstar); chain control, closures and incidents are then checked on both. `route.lonMax` cuts off what lies past the turn-off.
+- Every new destination adds TomTom requests: redo the budget in `scripts/lib.mjs` (a test checks it stays under the quota).

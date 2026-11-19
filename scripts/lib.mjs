@@ -195,7 +195,19 @@ export function ptToMs(str) {
   return guess + 8 * 36e5;
 }
 
-// ---------- TomTom ----------
+// Which of the route's roads a CHP log is on, and which way it faces there. `roads` come from roadsOf() in
+// js/logic.js; `mainMatch` is the pattern for the main highway (feeds.incidentMatch), the others are matched by
+// their number. `dirOf` is incidentDir() from js/normalize.js. Null when the log names none of them.
+export function incidentRoad(loc, desc, roads, mainMatch, dirOf) {
+  for (const [i, road] of roads.entries()) {
+    const num = road.highway.replace(/\D/g, '');
+    const re = new RegExp(i === 0 && mainMatch ? mainMatch : `(^|[^0-9])${num}([^0-9]|$)`, 'i');
+    if (!re.test(loc) && !re.test(desc)) continue;
+    return { hw: road.highway, dir: dirOf(loc, desc, num, [road.outboundDir, road.returnDir]) };
+  }
+  return null;
+}
+
 const STOP_MAX_KM = 5; // a point further than this from the route TomTom chose is not timed
 function km(aLat, aLon, bLat, bLon) {
   const r = Math.PI / 180;

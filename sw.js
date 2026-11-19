@@ -1,11 +1,11 @@
 // Offline support. Everything the page needs is kept in one cache and refreshed on every successful
 // request, so the copy on the device is always the last one that loaded. The network is always tried
 // first; the cached copy is only used when the network fails or takes too long (weak mountain signal).
-const CACHE = 'tahoe-v1';
+const CACHE = 'tahoe-v2';
 const SHELL = [
   './', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png', 'css/style.css',
   'js/app.js', 'js/alerts.js', 'js/config.js', 'js/food.js', 'js/i18n.js', 'js/logic.js', 'js/normalize.js', 'js/sync.js',
-  'js/routes/heavenly.js', 'js/vendor/leaflet.css', 'js/vendor/leaflet.js',
+  'js/routes/heavenly.js', 'js/routes/kirkwood.js', 'js/routes/northstar.js', 'js/vendor/leaflet.css', 'js/vendor/leaflet.js',
 ];
 const TIMEOUT_MS = 6000;
 // Marks a response that came from the cache because the network was unavailable, so the page can say so.
