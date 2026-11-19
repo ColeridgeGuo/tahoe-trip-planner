@@ -1,7 +1,7 @@
 // What the fetch script does with a failed source, and how it reads the feeds (scripts/lib.mjs).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { HOURS, MAX_CARRY_MS, carried, source, shiftWeather, carriedWeather, hourly, ptToMs, stopTimes, PAST_H, pastSnow, HISTORY_MAX, addHistory, quotaUsed, dedupe, MONTHLY_QUOTA, LIVE_EVERY_MS, NEAR_H, MID_EVERY_MS, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours } from '../scripts/lib.mjs';
+import { HOURS, MAX_CARRY_MS, carried, source, shiftWeather, carriedWeather, hourly, ptToMs, stopTimes, PAST_H, pastSnow, HISTORY_MAX, addHistory, quotaUsed, dedupe, streamUrl, liveStreams, STREAM_TRIES, MONTHLY_QUOTA, LIVE_EVERY_MS, NEAR_H, MID_EVERY_MS, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours } from '../scripts/lib.mjs';
 
 const H = 36e5;
 const MIN = 6e4;
@@ -342,5 +342,28 @@ describe('closure feed', () => {
   test('a closure listed twice is kept once; different ones stay', () => {
     const a = { from: 'A', to: 'B', start: 1 };
     assert.deepEqual(dedupe([a, { ...a }, { ...a, start: 2 }]), [a, { ...a, start: 2 }]);
+  });
+});
+
+describe('camera live streams', () => {
+  const B = 'https://wzmedia.dot.ca.gov/D3/';
+  test('an address with ".stream" written twice is corrected, others are left alone', () => {
+    assert.equal(streamUrl(B + '50_Forni_Rd_ED50_WB_1.stream.stream/playlist.m3u8'), B + '50_Forni_Rd_ED50_WB_1.stream/playlist.m3u8');
+    assert.equal(streamUrl(B + '50_Echo_Summit_ED50_EB.stream/playlist.m3u8'), B + '50_Echo_Summit_ED50_EB.stream/playlist.m3u8');
+    assert.equal(streamUrl(undefined), '');
+  });
+  const cams = [{ name: 'a', stream: B + 'a' }, { name: 'b', stream: B + 'b' }, { name: 'c', stream: '' }, { name: 'd', stream: B + 'd' }];
+  test('a stream that does not exist (404) is dropped, even after a refusal; one that answers is kept', async () => {
+    const seen = {};
+    const probe = async (u) => { seen[u] = (seen[u] || 0) + 1; return u.endsWith('a') ? (seen[u] < 3 ? 403 : 200) : u.endsWith('b') ? (seen[u] < 2 ? 403 : 404) : 200; };
+    const out = await liveStreams(cams, probe);
+    assert.deepEqual(out.map((c) => c.stream), [B + 'a', '', '', B + 'd']);
+    assert.deepEqual(seen, { [B + 'a']: 3, [B + 'b']: 2, [B + 'd']: 1 });
+  });
+  test('a stream that is only ever refused, or a host that does not answer, keeps its address', async () => {
+    let n = 0;
+    assert.deepEqual(await liveStreams(cams, async () => { n++; return 403; }), cams);
+    assert.equal(n, 3 * STREAM_TRIES);
+    assert.deepEqual(await liveStreams(cams, async () => 0), cams);
   });
 });

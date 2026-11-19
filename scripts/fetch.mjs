@@ -3,7 +3,7 @@
 import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { DESTINATIONS } from '../js/config.js';
 import { CC_URL, normalizeChain, incidentDir } from '../js/normalize.js';
-import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes, pastSnow, addHistory, quotaUsed, dedupe, MONTHLY_QUOTA, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours } from './lib.mjs';
+import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes, pastSnow, addHistory, quotaUsed, dedupe, streamUrl, liveStreams, MONTHLY_QUOTA, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours } from './lib.mjs';
 import { chainFor } from '../js/logic.js';
 
 const UA = 'tahoe-trip-planner (personal trip dashboard, github pages)';
@@ -81,11 +81,12 @@ async function cams(feeds) {
         lon: +l.longitude,
         elevFt: +l.elevation || null,
         img,
-        stream: c.imageData.streamingVideoURL || '',
+        stream: streamUrl(c.imageData.streamingVideoURL),
       });
     }
   }
-  return out.sort((a, b) => a.lon - b.lon);
+  const probe = (url) => fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(15000) }).then((r) => r.status, () => 0);
+  return liveStreams(out.sort((a, b) => a.lon - b.lon), probe);
 }
 
 async function closures(feeds, hw) {

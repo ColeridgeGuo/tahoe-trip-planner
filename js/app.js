@@ -637,10 +637,80 @@ function alertSettings() {
 }
 function openCam(i) {
   const c = S.data.cams[i];
-  $('#dlg').innerHTML = `<form method="dialog" class="camdlg"><h2>${esc(c.name)} <small>${esc(c.place)}</small></h2><img alt="${esc(c.name)}" src="${esc(c.img)}?t=${Date.now()}">
-    <div class="links">${c.stream ? `<a href="${esc(c.stream)}" target="_blank" rel="noopener">${t('openStream')} ↗</a>` : ''}</div><button class="ghost close">${t('close')}</button></form>`;
+  stopLive();
+  $('#dlg').innerHTML = `<form method="dialog" class="camdlg"><h2>${esc(c.name)} <small>${esc(c.place)}</small></h2><div id="camView"><img alt="${esc(c.name)}" src="${esc(c.img)}?t=${Date.now()}"></div>
+    <p class="note" id="camMsg" role="status" hidden></p>
+    <div class="links">${c.stream ? `<button type="button" id="camLive" data-act="camLive" data-v="${i}">▶ ${t('openStream')}</button>` : ''}</div><button class="ghost close">${t('close')}</button></form>`;
   $('#dlg').showModal();
 }
+
+// Live stream of a roadside camera, played inside the camera dialog.
+// Caltrans serves the streams from several servers and any single request (the playlist or a piece of video)
+// is refused with 403 about one time in three, whichever camera it is. Opening the address in a new tab gave
+// the browser's error page whenever the first request was the unlucky one, so the stream is played here with
+// a player that simply asks again. hls.js is used where the browser can run it; iPhones play it natively.
+// A refusal carries no CORS header, so the player cannot tell it from a stream that does not exist; it gives
+// up when nothing is playing after LIVE_WAIT_MS and the still picture comes back with a button to try again.
+const LIVE_WAIT_MS = 25000;
+const LIVE = { hls: null, loading: null, timer: 0, run: 0 };
+const LIVE_RETRY = { maxNumRetry: 6, retryDelayMs: 300, maxRetryDelayMs: 1500, backoff: 'linear', shouldRetry: (cfg, n) => n < cfg.maxNumRetry };
+const livePolicy = (ms) => ({ default: { maxTimeToFirstByteMs: 10000, maxLoadTimeMs: ms, timeoutRetry: { maxNumRetry: 2, retryDelayMs: 0, maxRetryDelayMs: 0 }, errorRetry: LIVE_RETRY } });
+function loadHls() {
+  if (window.Hls) return Promise.resolve();
+  return (LIVE.loading ||= new Promise((res, rej) => {
+    document.head.append(Object.assign(document.createElement('script'), { src: 'js/vendor/hls.light.min.js', onload: res, onerror: () => { LIVE.loading = null; rej(); } }));
+  }));
+}
+function stopLive() {
+  LIVE.run++;
+  clearTimeout(LIVE.timer);
+  LIVE.hls?.destroy();
+  LIVE.hls = null;
+  const v = $('#camView video');
+  if (v) { v.pause(); v.removeAttribute('src'); v.load(); }
+}
+async function playLive(i) {
+  const c = S.data.cams[i];
+  const view = $('#camView');
+  const msg = $('#camMsg');
+  const btn = $('#camLive');
+  if (!c?.stream || !view) return;
+  stopLive();
+  const run = LIVE.run;
+  const say = (k) => { msg.textContent = k ? t(k) : ''; msg.hidden = !k; };
+  // Back to the still picture, with the button offering another try.
+  const fail = () => {
+    if (run !== LIVE.run) return;
+    stopLive();
+    view.innerHTML = `<img alt="${esc(c.name)}" src="${esc(c.img)}?t=${Date.now()}">`;
+    say('streamFail');
+    btn.hidden = false;
+    btn.textContent = `▶ ${t('streamRetry')}`;
+  };
+  btn.hidden = true;
+  say('streamWait');
+  view.innerHTML = `<video controls autoplay muted playsinline poster="${esc(c.img)}"></video>`;
+  const video = view.firstChild;
+  const giveUp = setTimeout(fail, LIVE_WAIT_MS);
+  video.addEventListener('playing', () => { clearTimeout(giveUp); if (run === LIVE.run) say(''); });
+  await loadHls().catch(() => {});
+  if (run !== LIVE.run) return;
+  if (window.Hls?.isSupported()) {
+    const hls = (LIVE.hls = new window.Hls({ manifestLoadPolicy: livePolicy(20000), playlistLoadPolicy: livePolicy(20000), fragLoadPolicy: livePolicy(60000) }));
+    hls.on(window.Hls.Events.ERROR, (_, d) => { if (d.fatal) fail(); });
+    hls.loadSource(c.stream);
+    hls.attachMedia(video);
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    let tries = 0;
+    video.addEventListener('error', () => {
+      if (run !== LIVE.run) return;
+      if (++tries > LIVE_RETRY.maxNumRetry) return fail();
+      LIVE.timer = setTimeout(() => { video.src = c.stream; video.play().catch(() => {}); }, 400);
+    });
+    video.src = c.stream;
+  } else fail();
+}
+$('#dlg').addEventListener('close', stopLive);
 
 // ---------- events ----------
 const setPref = (k, v) => { S[k] = v; store.set(k, v); };
@@ -667,6 +737,7 @@ document.addEventListener('click', (e) => {
     case 'refresh': b.classList.add('spin'); loadData(); if (list.hasToken()) list.sync(); return;
     case 'settings': t = makeT(S.lang); return openSettings();
     case 'cam': return openCam(+v);
+    case 'camLive': return playLive(+v);
     case 'rcam': S.camsLoaded.add(+v); break;
     case 'foodOpen': S.foodOpenOnly = !S.foodOpenOnly; break;
     case 'mapLayer': S.mapShow[v] = !S.mapShow[v]; store.set('mapShow', S.mapShow); break;

@@ -62,7 +62,7 @@ export const STR = {
     chainTitle: '链条管制点', chainDir: '{dir}方向，自西向东', east: '东行', west: '西行', altTitle: '备选路线', altNone: '无管制', altMax: '最高 R{n}', altClosed: '有路段关闭', altNA: '无法确认',
     closTitle: '封路与车道关闭', closNone: '未来 7 天没有记录。', closNone48: '未来 48 小时主线没有车道关闭。', closMore: '更晚的计划和匝道关闭（{n}）', activeNow: '进行中', upcoming: '计划', until: '至', indefinite: '结束时间未定', delay: '延误约 {d} 分钟', lanesOf: '关闭 {a}/{b} 车道',
     food: { title: '沿路吃饭', arrive: '约 {v} 到', open: '到时大概营业', closing: '到时快关门了（约 {n} 分钟后）', closed: '到时大概没开', opensIn: '到时还没开，约 {v} 后开门', unknown: '营业时间未录', openOnly: '只看到时营业', noneOpen: '按这个出发时间，到时都没开。', fromNow: '现在出发', from: '{when} 出发', note: '到达时间按当前车程推算，不含停留。营业时间是手工录入的，可能已变，点店名在 Google Maps 里确认。' },
-    incTitle: 'CHP 实时事故', incNoneShort: '目前没有记录。', camTitle: '沿途摄像头', camHint: '自西向东。点图看大图。', openStream: '看直播', srcTextNote: 'Caltrans 和 CHP 的原始描述是英文，按原文显示。',
+    incTitle: 'CHP 实时事故', incNoneShort: '目前没有记录。', camTitle: '沿途摄像头', camHint: '自西向东。点图看大图。', openStream: '看直播', streamWait: '正在连接直播…', streamFail: '直播暂时连不上，可以再试一次。', streamRetry: '重试直播', srcTextNote: 'Caltrans 和 CHP 的原始描述是英文，按原文显示。',
     wearTitle: '按天穿衣', mountain: '山上', town: '镇上 / 开车', feels: '体感最低',
     w: {
       baseHeavy: '厚款保暖内衣', baseMid: '中厚保暖内衣', baseLight: '薄款速干内衣',
@@ -159,7 +159,7 @@ export const STR = {
     chainTitle: 'Chain control points', chainDir: '{dir}, west to east', east: 'Eastbound', west: 'Westbound', altTitle: 'Alternate routes', altNone: 'No controls', altMax: 'Up to R{n}', altClosed: 'Closed section', altNA: 'Cannot confirm',
     closTitle: 'Closures and lane closures', closNone: 'Nothing logged for the next 7 days.', closNone48: 'No mainline lane closures in the next 48 hours.', closMore: 'Later plans and ramp closures ({n})', activeNow: 'Active', upcoming: 'Planned', until: 'until', indefinite: 'end time unknown', delay: '~{d} min delay', lanesOf: '{a} of {b} lanes closed',
     food: { title: 'Food along the way', arrive: 'There about {v}', open: 'Probably open then', closing: 'Closing soon after you arrive (about {n} min)', closed: 'Probably closed then', opensIn: 'Not open yet, opens in about {v}', unknown: 'Hours not entered', openOnly: 'Open on arrival only', noneOpen: 'Nothing is open on arrival for this departure.', fromNow: 'Leaving now', from: 'Leaving {when}', note: 'Arrival times follow the current drive time, with no stops. Opening hours are entered by hand and may have changed: tap a name to check on Google Maps.' },
-    incTitle: 'CHP live incidents', incNoneShort: 'Nothing logged right now.', camTitle: 'Cameras along the route', camHint: 'West to east. Tap to enlarge.', openStream: 'Live stream', srcTextNote: 'Caltrans and CHP descriptions are shown in their original English.',
+    incTitle: 'CHP live incidents', incNoneShort: 'Nothing logged right now.', camTitle: 'Cameras along the route', camHint: 'West to east. Tap to enlarge.', openStream: 'Live stream', streamWait: 'Connecting to the live stream…', streamFail: 'The live stream is not answering right now. Try again.', streamRetry: 'Retry live stream', srcTextNote: 'Caltrans and CHP descriptions are shown in their original English.',
     wearTitle: 'What to wear, by day', mountain: 'On the mountain', town: 'In town / driving', feels: 'Feels-like low',
     w: {
       baseHeavy: 'Heavyweight base layer', baseMid: 'Midweight base layer', baseLight: 'Light wicking base layer',

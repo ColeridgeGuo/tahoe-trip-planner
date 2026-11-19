@@ -126,6 +126,27 @@ export function quotaUsed(prev, calls, nowMs = Date.now()) {
 }
 
 // ---------- Caltrans ----------
+// The camera feed's live-stream address, cleaned up. Caltrans writes a few of them with the ".stream" part
+// twice (the Forni Rd cameras), and that address answers 404; the single form plays.
+export const streamUrl = (raw) => String(raw || '').trim().replace(/(\.stream)+\/playlist\.m3u8$/, '.stream/playlist.m3u8');
+
+// Drops the live-stream address of cameras that have no stream (the feed lists one anyway and it answers
+// 404), so the page does not offer it. The stream host also refuses requests for streams that do exist with
+// 403, about one in three and more when many arrive together, so a 403 says nothing and is asked again; a
+// camera that is still refused after STREAM_TRIES keeps its address, and the page's player retries by itself.
+// probe(url) resolves to the HTTP status (0 = no answer).
+export const STREAM_TRIES = 4;
+export async function liveStreams(cams, probe) {
+  return Promise.all(cams.map(async (c) => {
+    for (let i = 0; c.stream && i < STREAM_TRIES; i++) {
+      const code = await probe(c.stream);
+      if (code === 200) break;
+      if (code === 404) return { ...c, stream: '' };
+    }
+    return c;
+  }));
+}
+
 // The lane-closure feed lists some closures twice; keep one of each.
 export function dedupe(list) {
   const seen = new Set();
