@@ -479,7 +479,6 @@ function viewVerdict() {
     ${seg('direction', S.direction, [['out', t('out')], ['back', t('back')]])}
     ${seg('mode', pick ? 'pick' : 'now', [['now', t('now')], ['pick', t('pick')]])}
     ${pick ? `<select data-change="day" aria-label="${t('day')}">${S.ix.days.map((x) => `<option value="${x}" ${x === day ? 'selected' : ''}>${fDay(x)}${x === L.dayKey(Date.now()) || x === L.dayKey(Date.now() + 864e5) ? ' · ' + fDayFull(x) : ''}</option>`).join('')}</select>` : ''}
-    <button class="ghost share" data-act="share">${IC.share}<span>${t('share')}</span></button>
   </div>${S.shareGone ? `<p class="note">${t('shareGone')}</p>` : ''}`;
 
   // Change alert for this direction: the one that is on, and a button to watch the hour picked on the strip.
@@ -492,6 +491,7 @@ function viewVerdict() {
     ${busy ? `<span class="muted">${t('al.saving')}</span>` : S.alertErr ? `<span class="tag bad">${t('al.failed')}</span>` : ''}</div>` : '';
 
   const hero = `<section class="hero ${ev.level}">
+    <button class="share" data-act="share">${IC.share}<span>${t('share')}</span></button>
     <div class="route">${esc(nm(ends[0].name))} → ${esc(nm(ends[1].name))}</div>
     <h1>${t(ev.level)}</h1>
     <p>${t(ev.level + 'Sub')}</p>
@@ -842,7 +842,7 @@ $('#dlg').addEventListener('submit', (e) => { e.preventDefault(); closeDlg(); })
 $('#dlg').addEventListener('close', () => { closeAsk = false; });
 
 // ---------- sharing ----------
-// A link to the view on the verdict tab. Phones and tablets hand it to the system share sheet; elsewhere it
+// A link to the view on the verdict tab, from the button in the corner of the verdict card. Phones and tablets hand it to the system share sheet; elsewhere it
 // is copied, which is what a share sheet on a computer mostly ends in anyway.
 function shareView(btn) {
   const d = dest();
