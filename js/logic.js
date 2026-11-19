@@ -316,7 +316,9 @@ export function chainOn(data, route, direction) {
   // As in chainFor(): a status that cannot be read is never taken for "no chain control".
   const unknown = rows.filter((c) => c.level < 0);
   const top = rows.reduce((m, c) => Math.max(m, c.level), -1);
-  return { rows, max: top <= 0 && unknown.length ? -1 : top, active: rows.filter((c) => c.level > 0), unknown };
+  // Every road has to be heard from: a clear I-80 says nothing about CA-267 when the feed has no row for it.
+  const silent = hws.some((hw) => !rows.some((c) => c.hw === hw));
+  return { rows, max: top <= 0 && (unknown.length || silent) ? -1 : top, active: rows.filter((c) => c.level > 0), unknown };
 }
 
 // Not the road itself: ramps and connectors, and the rest areas and side streets Caltrans lists under the

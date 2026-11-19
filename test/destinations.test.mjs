@@ -130,14 +130,14 @@ describe('destinations', () => {
         }
       });
       test('change alert: the notification names this destination and its highway', () => {
-        const data = makeData({ chain: [cc(r.highway, r.outboundDir, 0)] }, r);
+        const data = makeData({}, r);
         const plan = { dest: d.id, direction: 'out', departMs: NOW + 3 * H, setAt: NOW };
         const cur = planState(data, d, plan, AWD, NOW);
         assert.deepEqual([cur.level, cur.chain], ['go', 0]);
         const first = decide(null, cur, plan, d, 'zh', NOW);
         assert.ok(first.title.startsWith(d.name.zh));
         assert.ok(first.body.includes(r.label));
-        const worse = planState(makeData({ chain: [cc(r.highway, r.outboundDir, 2)] }, r), d, plan, { ...AWD, chains: false }, NOW);
+        const worse = planState(makeData({ chain: [...quietChain(r), cc(r.highway, r.outboundDir, 2)] }, r), d, plan, { ...AWD, chains: false }, NOW);
         const msg = decide(first.told, worse, plan, d, 'zh', NOW);
         assert.ok(msg.body.includes('R2'));
         assert.equal(msg.told.level, 'nogo');
@@ -191,7 +191,7 @@ describe('Northstar: I-80, then CA-267', () => {
     assert.deepEqual(L.roadsOf(heavenly.route).map((x) => x.highway), ['US-50']);
   });
   test('chain control on I-80 eastbound decides the trip out', () => {
-    const data = makeData({ chain: [cc('I-80', 'East', 3, -120.45), cc('I-80', 'West', 0, -120.45)] }, r);
+    const data = makeData({ chain: [...quietChain(r), cc('I-80', 'East', 3, -120.45)] }, r);
     assert.equal(go(northstar, data).level, 'nogo');
     assert.equal(go(northstar, data, 'back').level, 'go');
   });
@@ -202,6 +202,13 @@ describe('Northstar: I-80, then CA-267', () => {
     const north = makeData({ chain: [...quietChain(r), cc('SR-267', 'North', 3, -120.038)] }, r);
     assert.equal(go(northstar, north).level, 'go');
     assert.equal(go(northstar, north, 'back').level, 'nogo');
+  });
+  test('one road clear and no checkpoint at all for the other: cannot confirm, not "no chain control"', () => {
+    const data = makeData({ chain: [cc('I-80', 'East', 0, -120.45), cc('I-80', 'West', 0, -120.45)] }, r);
+    assert.equal(L.chainOn(data, r, 'out').max, -1);
+    assert.equal(go(northstar, data).level, 'caution');
+    // A restriction that is known still wins.
+    assert.equal(L.chainOn(makeData({ chain: [cc('I-80', 'East', 2, -120.45)] }, r), r, 'out').max, 2);
   });
   test('the stricter of the two roads is the one reported', () => {
     const data = makeData({ chain: [cc('I-80', 'East', 1, -120.45), cc('SR-267', 'South', 2, -120.148)] }, r);
