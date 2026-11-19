@@ -39,6 +39,8 @@ const dest = () => DESTINATIONS.find((d) => d.id === S.destId) || DESTINATIONS[0
 const nm = (o) => (typeof o === 'string' ? o : o[S.lang] || o.en);
 const TABS = ['verdict', 'weather', 'roads', 'wear', 'resort', 'list'];
 if (!TABS.includes(S.tab)) S.tab = 'verdict';
+// A saved destination that no longer exists would ask for a data file that is not there.
+if (!DESTINATIONS.some((d) => d.id === S.destId)) S.destId = DESTINATIONS[0].id;
 
 // ---------- formatting ----------
 const loc = () => (S.lang === 'zh' ? 'zh-CN' : 'en-US');
@@ -62,9 +64,17 @@ function fDur(sec, short) {
   if (short) return `${h}:${String(m % 60).padStart(2, '0')}`;
   return S.lang === 'zh' ? `${h} 小时 ${m % 60} 分` : `${h} h ${m % 60} min`;
 }
-const fTime = (ms) => new Intl.DateTimeFormat(loc(), { timeZone: TZ, hour: 'numeric', minute: '2-digit', hour12: S.lang !== 'zh' }).format(ms);
+// Building an Intl formatter is slow and the week chart asks for several hundred dates per redraw, so each
+// kind is built once per language.
+const fmts = new Map();
+const dtf = (kind, opts) => {
+  const k = `${S.lang}|${kind}`;
+  if (!fmts.has(k)) fmts.set(k, new Intl.DateTimeFormat(loc(), { timeZone: TZ, ...opts }));
+  return fmts.get(k);
+};
+const fTime = (ms) => dtf('time', { hour: 'numeric', minute: '2-digit', hour12: S.lang !== 'zh' }).format(ms);
 const fHour = (h) => (S.lang === 'zh' ? `${h}时` : `${h % 12 || 12}${h < 12 ? 'a' : 'p'}`);
-const fDayMs = (ms) => new Intl.DateTimeFormat(loc(), { timeZone: TZ, weekday: 'short', month: 'numeric', day: 'numeric' }).format(ms);
+const fDayMs = (ms) => dtf('day', { weekday: 'short', month: 'numeric', day: 'numeric' }).format(ms);
 const dayMs = (day) => Date.parse(day + 'T12:00:00-08:00');
 function fDay(day) {
   const today = L.dayKey(Date.now());
@@ -103,18 +113,39 @@ function pickedHour() {
 // "Live" only holds while the network is reachable; offline, say how old the reading is instead.
 const liveTag = (at) => (S.offline ? fAgo(at || S.data.generatedAt) : t('liveTag'));
 
-async function loadData() {
+// One request per destination at a time: the timer, the tab coming back to the front and the network coming
+// back can all ask at the same moment.
+let loading = null;
+function loadData() {
+  const id = S.destId;
+  if (loading?.id === id) return loading.p;
+  const p = fetchData(id).finally(() => { if (loading?.p === p) loading = null; });
+  loading = { id, p };
+  return p;
+}
+// index.html starts the first request before the scripts have loaded (window.__boot); it is used once.
+function firstFetch(id) {
+  const boot = window.__boot;
+  window.__boot = null;
+  return boot?.id === id ? boot.p : null;
+}
+async function fetchData(id) {
   try {
-    const r = await fetch(`data/${S.destId}.json?ts=${Math.floor(Date.now() / 6e4)}`, { cache: 'no-store' });
+    const r = await (firstFetch(id) || fetch(`data/${id}.json?ts=${Math.floor(Date.now() / 6e4)}`, { cache: 'no-store' }));
     if (!r.ok) throw new Error(r.status);
     const d = await r.json();
-    const liveChain = S.data && S.chainLiveAt ? S.data.chain : null;
+    if (id !== S.destId) return; // another destination was picked while this one was loading
+    // Keep the chain control read straight from Caltrans only while it is newer than the file's own reading.
+    // If those direct requests stop working, the scheduled refresh takes over instead of an old "live" one.
+    const fileAt = d.status?.chain?.ok ? d.status.chain.at : 0;
+    if (S.data && S.chainLiveAt && S.chainLiveAt >= fileAt) { d.chain = S.data.chain; d.status.chain = { ok: true, at: S.chainLiveAt }; }
+    else S.chainLiveAt = null;
     S.data = d;
-    if (liveChain) { d.chain = liveChain; d.status.chain = { ok: true, at: S.chainLiveAt }; }
     S.ix = L.index(d);
     S.error = null;
     S.offline = r.headers.get('X-Offline-Copy') === '1'; // set by sw.js when it had to fall back to its saved copy
   } catch (e) {
+    if (id !== S.destId) return;
     S.error = String(e.message || e);
     S.offline = !!S.data;
   }
@@ -125,15 +156,16 @@ async function loadData() {
 // Chain control straight from Caltrans (CORS-enabled), so the verdict is not limited by the scheduled refresh.
 async function liveChain() {
   if (!S.data) return;
+  const id = S.destId;
   const f = dest().feeds;
   try {
-    const all = [];
-    for (const d of f.ccDistricts) {
+    const parts = await Promise.all(f.ccDistricts.map(async (d) => {
       const r = await fetch(CC_URL(d), { cache: 'no-store' });
       if (!r.ok) throw new Error(r.status);
-      all.push(...normalizeChain(await r.json(), f.chainHighways));
-    }
-    S.data.chain = all;
+      return normalizeChain(await r.json(), f.chainHighways);
+    }));
+    if (id !== S.destId || !S.data) return; // the answer is for a destination that is no longer shown
+    S.data.chain = parts.flat();
     S.chainLiveAt = Date.now();
     S.data.status.chain = { ok: true, at: S.chainLiveAt };
     softRender();
@@ -231,9 +263,26 @@ function render() {
   if (!S.data) { m.innerHTML = `<p class="muted pad">${S.error ? `${t('loadFail')}: ${esc(S.error)}` : t('loading')}</p>`; if (S.tab === 'list') m.innerHTML = viewList(); return; }
   // Keep the live map element across re-renders so tiles and the current view are not thrown away.
   const keep = MAP.map ? $('#map') : null;
+  const view = viewState(m);
   m.innerHTML = withFoldAll({ verdict: viewVerdict, weather: viewWeather, roads: viewRoads, wear: viewWear, resort: viewResort, list: viewList }[S.tab]());
+  viewState(m, view);
   const slot = $('#map');
   if (slot && keep) { slot.replaceWith(keep); drawMap(); } else if (slot) initMap(); else destroyMap();
+}
+
+// A redraw replaces the whole tab, and background refreshes redraw it every few minutes. What the reader had
+// scrolled sideways (the hourly forecast, wide tables) and the lists they had opened are put back, as long as
+// it is still the same tab of the same destination with the same parts.
+const SCROLLERS = '.hours, .tablewrap, .chips';
+function viewState(m, old) {
+  const sc = [...m.querySelectorAll(SCROLLERS)];
+  const dt = [...m.querySelectorAll('details')];
+  if (!old) return { sig: m.dataset.view, left: sc.map((x) => x.scrollLeft), open: dt.map((x) => x.open) };
+  m.dataset.view = `${S.tab}|${S.destId}|${S.wxPoint}`; // what is on the page from now on
+  if (old.sig !== m.dataset.view || old.left.length !== sc.length || old.open.length !== dt.length) return null;
+  sc.forEach((x, i) => { if (old.left[i]) x.scrollLeft = old.left[i]; });
+  dt.forEach((x, i) => { x.open = old.open[i]; });
+  return null;
 }
 
 // ----- map (Leaflet, loaded only when the roads tab needs it) -----
@@ -770,7 +819,11 @@ document.addEventListener('click', (e) => {
     case 'lang': case 'tu': case 'lu': setPref(b.dataset.act, v); if (b.closest('#dlg')) { t = makeT(S.lang); openSettings(); } break;
     case 'themeSet': setPref('theme', v); t = makeT(S.lang); openSettings(); break;
     case 'direction': setPref('direction', v); break;
-    case 'mode': S.depart = v === 'now' ? 'now' : { day: L.dayKey(Date.now()), h: Math.min(23, L.hourOf(Date.now()) + 1) }; break;
+    case 'mode': { // the next full hour, which after 23:00 is midnight tomorrow
+      const next = Date.now() + 36e5;
+      S.depart = v === 'now' ? 'now' : { day: L.dayKey(next), h: L.hourOf(next) };
+      break;
+    }
     case 'wk': { const [dir, day, h] = v.split('|'); setPref('direction', dir); S.depart = { day, h: +h }; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
     case 'hour': S.depart = { day: S.depart === 'now' ? L.dayKey(Date.now()) : S.depart.day, h: +v }; break;
     case 'wx': S.wxPoint = v; break;
