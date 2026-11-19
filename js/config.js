@@ -43,6 +43,7 @@ export const DESTINATIONS = [
       // sit on a road that is the same in both directions.
       drivePins: ['kyburz', 'pass'],
       townPoint: 'town',
+      mapsPlace: 'Heavenly California Lodge, South Lake Tahoe, CA', // the resort end of the Google Maps link
       // Each alternate is judged on every road it uses (`legs`), in the direction driven on the way out and
       // back, and only on the stretch that is driven (`box`): I-80 then CA-89 down the west shore past
       // Emerald Bay (Truckee to South Lake Tahoe); CA-88 to Picketts Junction then CA-89 over Luther Pass.

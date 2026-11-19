@@ -287,6 +287,11 @@ describe('Drive times: TomTom for Heavenly only, a Google Maps link for the othe
     assert.equal(back.get('destination'), '37.563,-122.3255');
     assert.equal(back.get('waypoints'), '38.7056,-120.109|38.5446,-120.371');
   });
+  test('Heavenly has the link too, through Kyburz and Echo Summit', () => {
+    const q = new URL(L.mapsUrl(heavenly, 'out')).searchParams;
+    assert.equal(q.get('destination'), heavenly.route.mapsPlace);
+    assert.equal(q.get('waypoints'), '38.7746,-120.2977|38.8121,-120.0303');
+  });
   test('a pin on a divided road uses the carriageway of that direction', () => {
     assert.equal(new URL(L.mapsUrl(northstar, 'out')).searchParams.get('waypoints'), '39.33949,-120.347');
     assert.equal(new URL(L.mapsUrl(northstar, 'back')).searchParams.get('waypoints'), '39.33995,-120.34771');

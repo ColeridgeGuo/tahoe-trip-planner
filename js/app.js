@@ -422,7 +422,7 @@ function viewVerdict() {
     <div class="route">${esc(nm(ends[0].name))} → ${esc(nm(ends[1].name))}</div>
     <h1>${t(ev.level)}</h1>
     <p>${t(ev.level + 'Sub')}</p>
-    <div class="times"><span>${t('departAt')} <b>${fWhen(dm)}</b></span><span>${t('arriveAt')} <b>${fTime(ev.endMs)}</b></span>${ev.drive.src === 'fixed' ? '' : `<span>${t('driveLabel')} <b>${fDur(ev.drive.sec)}</b></span>`}${ev.drive.snowMin ? `<span>${t('snowLater', { a: ev.drive.snowMin[0], b: ev.drive.snowMin[1] })}</span>` : ''}${d.driveTimes === 'maps' ? `<span><a href="${esc(L.mapsUrl(d, S.direction))}" target="_blank" rel="noopener">${t('mapsLive')}</a></span>` : ''}</div>
+    <div class="times"><span>${t('departAt')} <b>${fWhen(dm)}</b></span><span>${t('arriveAt')} <b>${fTime(ev.endMs)}</b></span>${ev.drive.src === 'fixed' ? '' : `<span>${t('driveLabel')} <b>${fDur(ev.drive.sec)}</b></span>`}${ev.drive.snowMin ? `<span>${t('snowLater', { a: ev.drive.snowMin[0], b: ev.drive.snowMin[1] })}</span>` : ''}<span><a href="${esc(L.mapsUrl(d, S.direction))}" target="_blank" rel="noopener">${t(d.driveTimes === 'maps' ? 'mapsLive' : 'mapsNav')}</a></span></div>
   </section>`;
 
   const order = { nogo: 0, caution: 1, ok: 2, info: 3 };
