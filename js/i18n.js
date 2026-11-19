@@ -81,6 +81,7 @@ export const STR = {
     tip: { zh: '中文', en: 'English', C: '摄氏度', F: '华氏度', imp: '英制', met: '公制', theme: '外观', refresh: '刷新数据', settings: '设置' },
     settings: '设置', theme: '外观', th: { auto: '跟随设备', light: '浅色', dark: '深色' }, lang: '语言', units: '单位', vehicle: '车辆', awd: '四驱 / AWD', twd: '两驱', snowTires: 'M+S 或雪胎', chains: '随车带链条', ev: '电车',
     syncWhy: { token: 'GitHub 不认这个令牌：可能粘贴的不是令牌、没复制完整，或已过期。点“断开”后重新粘贴。', scope: '这个令牌没有 gist 权限，或用量超限。请生成一个勾选了 gist 的令牌，点“断开”后重新粘贴。', github: 'GitHub 那边出错了，稍后再试。', net: '连不上 GitHub，检查网络后再试。' },
+    unsaved: '令牌还没保存，要保存吗？', discard: '不保存',
     syncTitle: '清单跨设备同步', syncHelp: '在 GitHub 生成一个只勾选 gist 权限的令牌，每台设备粘贴一次。清单存在你自己的私密 Gist 里，令牌只保存在这台设备的浏览器里。', tokenPh: 'GitHub 令牌 (ghp_… 或 github_pat_…)', save: '保存并同步', disconnect: '断开', makeToken: '生成令牌', close: '关闭',
     al: {
       title: '变化提醒', help: '在“建议”页选好出发时间后开提醒：出行结论或链条管制等级一变，或者车程比上次通知时多出或少了 30 分钟以上，就推送到这台设备；出发前一晚 8 点和出发前 2 小时还会各发一条汇总。每 15 分钟检查一次，到出发为止。去程和返程可以各设一个。',
@@ -182,6 +183,7 @@ export const STR = {
     tip: { zh: '中文', en: 'English', C: 'Celsius', F: 'Fahrenheit', imp: 'Imperial', met: 'Metric', theme: 'Appearance', refresh: 'Refresh data', settings: 'Settings' },
     settings: 'Settings', theme: 'Appearance', th: { auto: 'Match device', light: 'Light', dark: 'Dark' }, lang: 'Language', units: 'Units', vehicle: 'Vehicle', awd: '4WD / AWD', twd: '2WD', snowTires: 'M+S or snow tires', chains: 'Chains in the car', ev: 'Electric',
     syncWhy: { token: 'GitHub rejected this token: it may not be a token, may be incomplete, or has expired. Disconnect and paste it again.', scope: 'This token lacks the gist permission, or is over its rate limit. Create one with gist ticked, disconnect, and paste it again.', github: 'GitHub returned an error. Try again later.', net: 'Could not reach GitHub. Check the connection and try again.' },
+    unsaved: 'The token is not saved yet. Save it?', discard: 'Don’t save',
     syncTitle: 'Sync the list across devices', syncHelp: 'Create a GitHub token with only the gist scope and paste it once per device. The list lives in a private Gist of yours; the token stays in this browser.', tokenPh: 'GitHub token (ghp_… or github_pat_…)', save: 'Save and sync', disconnect: 'Disconnect', makeToken: 'Create token', close: 'Close',
     al: {
       title: 'Change alerts', help: 'Pick a departure time on the Verdict tab and turn on the alert: this device gets a notification whenever the verdict or the chain-control level changes, or the drive time moves 30 minutes or more from the last one reported, plus a summary at 8 pm the evening before and two hours before leaving. Checked every 15 minutes until you leave. One each for the outbound and the return trip.',

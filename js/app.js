@@ -146,6 +146,7 @@ async function liveChain() {
 // Inline SVG icons (Feather, MIT) so they render identically on every platform instead of as emoji.
 const svg = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const IC = {
+  x: svg('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
   refresh: svg('<path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>'),
   settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>'),
 };
@@ -618,19 +619,33 @@ function viewList() {
 }
 
 // ----- dialogs -----
+// A token typed but not yet saved. Kept so that redrawing the dialog, or closing it by a click outside, does not lose it.
+let tokenDraft = '';
+// Every dialog closes the same way: the × pinned to its top right corner, a click outside, or Escape.
+const dhead = (title) => `<div class="dhead"><h2>${title}</h2><button class="icon" aria-label="${t('close')}">${IC.x}</button></div>`;
+// Closing the settings with such a token asks first, inside the dialog, whether to save it.
+let closeAsk = false;
+function closeDlg() {
+  const d = $('#dlg');
+  if (!d.querySelector('#token') || !tokenDraft.trim()) return d.close();
+  closeAsk = true;
+  openSettings();
+  d.querySelector('.confirm').scrollIntoView({ block: 'nearest' });
+}
 function openSettings() {
   const v = S.vehicle;
   const chk = (k, label) => `<label class="chk"><input type="checkbox" data-change="veh" data-v="${k}" ${v[k] ? 'checked' : ''}>${label}</label>`;
-  $('#dlg').innerHTML = `<form method="dialog"><h2>${t('settings')}</h2>
+  $('#dlg').innerHTML = `<form method="dialog">${dhead(t('settings'))}
     <h3>${t('theme')}</h3>${seg('themeSet', S.theme, [['auto', t('th.auto')], ['light', t('th.light')], ['dark', t('th.dark')]])}
     <h3>${t('lang')}</h3>${seg('lang', S.lang, [['zh', '中', t('tip.zh')], ['en', 'EN', t('tip.en')]])}
     <h3>${t('units')}</h3><div class="segs">${seg('tu', S.tu, [['C', '°C', t('tip.C')], ['F', '°F', t('tip.F')]])}${seg('lu', S.lu, [['imp', 'in·ft', t('tip.imp')], ['met', 'cm·m', t('tip.met')]])}</div>
     <h3>${t('vehicle')}</h3>${seg('drive', v.drive, [['awd', t('awd')], ['2wd', t('twd')]])}<div class="chks">${chk('snowTires', t('snowTires'))}${chk('chains', t('chains'))}${chk('ev', t('ev'))}</div>
     <h3>${t('syncTitle')}</h3><p class="note">${t('syncHelp')} <a href="https://github.com/settings/tokens/new?scopes=gist&description=Tahoe%20Run%20checklist" target="_blank" rel="noopener">${t('makeToken')} ↗</a></p>
     ${list.hasToken() ? `<p><span class="tag ${list.status()}">${t('sync.' + list.status())}</span> <button type="button" class="ghost" data-act="disconnect">${t('disconnect')}</button></p>${list.status() === 'err' ? `<p class="note">${syncWhy()}</p>` : ''}`
-      : `<div class="add"><input id="token" type="password" autocomplete="off" placeholder="${t('tokenPh')}"><button type="button" data-act="connect">${t('save')}</button></div>`}
+      : `<div class="add"><input id="token" type="password" autocomplete="off" placeholder="${t('tokenPh')}" value="${esc(tokenDraft)}"><button type="button" data-act="connect">${t('save')}</button></div>`}
     <h3>${t('al.title')}</h3><p class="note">${t('al.help')}</p>${alertSettings()}
-    <button class="ghost close">${t('close')}</button></form>`;
+    ${closeAsk && !list.hasToken() ? `<div class="confirm" role="alert"><p>${t('unsaved')}</p><button type="button" data-act="connect">${t('save')}</button><button type="button" class="ghost" data-act="discard">${t('discard')}</button></div>`
+      : ''}</form>`;
   if (!$('#dlg').open) $('#dlg').showModal();
 }
 // Why the checklist sync failed, in words: the token was rejected, lacks the gist permission, or GitHub was unreachable.
@@ -653,9 +668,9 @@ function alertSettings() {
 function openCam(i) {
   const c = S.data.cams[i];
   stopLive();
-  $('#dlg').innerHTML = `<form method="dialog" class="camdlg"><h2>${esc(c.name)} <small>${esc(c.place)}</small></h2><div id="camView"><img alt="${esc(c.name)}" src="${esc(c.img)}?t=${Date.now()}"></div>
+  $('#dlg').innerHTML = `<form method="dialog" class="camdlg">${dhead(`${esc(c.name)} <small>${esc(c.place)}</small>`)}<div id="camView"><img alt="${esc(c.name)}" src="${esc(c.img)}?t=${Date.now()}"></div>
     <p class="note" id="camMsg" role="status" hidden></p>
-    <div class="links">${c.stream ? `<button type="button" id="camLive" data-act="camLive" data-v="${i}">▶ ${t('openStream')}</button>` : ''}</div><button class="ghost close">${t('close')}</button></form>`;
+    <div class="links">${c.stream ? `<button type="button" id="camLive" data-act="camLive" data-v="${i}">▶ ${t('openStream')}</button>` : ''}</div></form>`;
   $('#dlg').showModal();
 }
 
@@ -726,18 +741,23 @@ async function playLive(i) {
   } else fail();
 }
 $('#dlg').addEventListener('close', stopLive);
-// A click outside the camera dialog closes it. The dialog element covers only its own box, so a click that
+$('#dlg').addEventListener('input', (e) => { if (e.target.id === 'token') tokenDraft = e.target.value; });
+// A click outside a dialog closes it. The dialog element covers only its own box, so a click that
 // lands on it but outside that box is on the backdrop. The press must start outside too, so dragging the
 // video's controls out of the box and letting go there does not close it.
 let dlgDownOutside = false;
 const outsideDlg = (e) => {
   const d = $('#dlg');
-  if (e.target !== d || !d.querySelector('.camdlg')) return false;
+  if (e.target !== d) return false;
   const r = d.getBoundingClientRect();
   return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
 };
 $('#dlg').addEventListener('pointerdown', (e) => { dlgDownOutside = outsideDlg(e); });
-$('#dlg').addEventListener('click', (e) => { if (dlgDownOutside && outsideDlg(e)) $('#dlg').close(); dlgDownOutside = false; });
+$('#dlg').addEventListener('click', (e) => { if (dlgDownOutside && outsideDlg(e)) closeDlg(); dlgDownOutside = false; });
+// Escape and the dialog's own close button go the same way.
+$('#dlg').addEventListener('cancel', (e) => { e.preventDefault(); closeDlg(); });
+$('#dlg').addEventListener('submit', (e) => { e.preventDefault(); closeDlg(); });
+$('#dlg').addEventListener('close', () => { closeAsk = false; });
 
 // ---------- events ----------
 const setPref = (k, v) => { S[k] = v; store.set(k, v); };
@@ -788,7 +808,8 @@ document.addEventListener('click', (e) => {
     case 'del': list.remove(v); return;
     case 'clearDone': list.clearDone(); return;
     case 'drive': S.vehicle.drive = v; store.set('vehicle', S.vehicle); openSettings(); break;
-    case 'connect': { const tok = $('#token').value; if (tok.trim()) list.connect(tok).then(openSettings); return; }
+    case 'connect': { const tok = $('#token').value; if (tok.trim()) { const ask = closeAsk; tokenDraft = ''; closeAsk = false; list.connect(tok).then(() => (ask && list.status() !== 'err' ? $('#dlg').close() : openSettings())); } return; }
+    case 'discard': tokenDraft = ''; closeAsk = false; $('#dlg').close(); return;
     case 'disconnect': list.disconnect(); return openSettings();
     case 'alertOn': { // asks for notification permission, so it has to start inside this tap
       const h = pickedHour();
