@@ -286,4 +286,4 @@ select{appearance:none;-webkit-appearance:none;cursor:pointer;padding-right:1.87
 .dhead .icon{flex:none;width:2.75rem;height:2.75rem;margin:-0.375rem -0.375rem -0.375rem 0;border-radius:0.75rem}
 .dhead .icon svg{width:1.25rem;height:1.25rem}
 /* breathing room between the page title and the resort picker under it */
-#title{row-gap:0.625rem}
+#title{row-gap:1rem}
