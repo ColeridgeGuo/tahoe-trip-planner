@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Tahoe Trip Planner</title>
 <script>try{document.documentElement.dataset.theme=JSON.parse(localStorage.getItem('tr.theme'))||'auto'}catch(e){}</script>
-<!-- Start downloading the data now, while the scripts are still loading; js/app.js picks it up (window.__boot). -->
-<script>try{var d=JSON.parse(localStorage.getItem('tr.dest'))||'heavenly';if(/^[a-z0-9-]+$/.test(d)){window.__boot={id:d,p:fetch('data/'+d+'.json?ts='+Math.floor(Date.now()/6e4),{cache:'no-store'})};window.__boot.p.catch(function(){})}}catch(e){}</script>
+<!-- Start downloading the data now, while the scripts are still loading; js/app.js picks it up (window.__boot).
+     A share link (?resort=) names the destination to show, ahead of the saved one. -->
+<script>try{var d=new URLSearchParams(location.search).get('resort')||JSON.parse(localStorage.getItem('tr.dest'))||'heavenly';if(/^[a-z0-9-]+$/.test(d)){window.__boot={id:d,p:fetch('data/'+d+'.json?ts='+Math.floor(Date.now()/6e4),{cache:'no-store'})};window.__boot.p.catch(function(){})}}catch(e){}</script>
 <meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0e1116" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -24,6 +25,7 @@
 <link rel="modulepreload" href="js/alerts.js">
 <link rel="modulepreload" href="js/food.js">
 <link rel="modulepreload" href="js/logic.js">
+<link rel="modulepreload" href="js/share.js">
 </head>
 <body>
 <header>

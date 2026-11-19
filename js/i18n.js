@@ -103,6 +103,7 @@ export const STR = {
       chainNone: '无', chainClosed: '关闭', chainNA: '无法确认',
     },
     quota: { used: 'TomTom 本月已用 {n} / {q} 次（{p}%）', from: '自 {d} 起计', ref: '以 TomTom 后台为准', hide: '知道了' },
+    share: '分享', shareCopied: '已复制链接', shareFail: '复制失败', shareGone: '链接里的出发时间已过或超出预报范围，现在显示的是“现在出发”。',
     dest: '目的地', refresh: '刷新', dataAt: '数据', chainLive: '链条', ago: '{v}前', min: '分钟', hr: '小时', justNow: '刚刚', loading: '加载中…', loadFail: '数据加载失败', srcStaleTag: '沿用 {v}的数据', offline: '离线 · 显示的是{when}的数据（{ago}）', srcs: '数据来源：Caltrans、CHP、NWS、TomTom。估算仅供参考，上路前以官方信息为准。',
   },
   en: {
@@ -209,6 +210,7 @@ export const STR = {
       chainNone: 'none', chainClosed: 'closed', chainNA: 'cannot confirm',
     },
     quota: { used: 'TomTom this month: {n} / {q} requests ({p}%)', from: 'counted from {d}', ref: 'the TomTom dashboard is the reference', hide: 'OK' },
+    share: 'Share', shareCopied: 'Link copied', shareFail: 'Could not copy', shareGone: 'The departure in the link has passed or is beyond the forecast, so this shows “Leave now”.',
     dest: 'Destination', refresh: 'Refresh', dataAt: 'Data', chainLive: 'Chains', ago: '{v} ago', min: 'min', hr: 'h', justNow: 'just now', loading: 'Loading…', loadFail: 'Could not load data', srcStaleTag: 'Data from {v}', offline: 'Offline · showing data from {when} ({ago})', srcs: 'Sources: Caltrans, CHP, NWS, TomTom. Estimates are guidance only; trust official information before you drive.',
   },
 };

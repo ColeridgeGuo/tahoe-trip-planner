@@ -5,6 +5,7 @@ import { list, gist } from './sync.js';
 import { alerts } from './alerts.js';
 import { FOOD } from './food.js';
 import * as L from './logic.js';
+import { shareQuery, parseShare, sharedDepart } from './share.js';
 
 const TZ = 'America/Los_Angeles';
 const $ = (s) => document.querySelector(s);
@@ -41,6 +42,17 @@ const TABS = ['verdict', 'weather', 'roads', 'wear', 'resort', 'list'];
 if (!TABS.includes(S.tab)) S.tab = 'verdict';
 // A saved destination that no longer exists would ask for a data file that is not there.
 if (!DESTINATIONS.some((d) => d.id === S.destId)) S.destId = DESTINATIONS[0].id;
+// A share link: show the view it describes, this once. The reader's own saved destination and direction are
+// left alone, and the address is cleaned up so that a reload or a later change is not pulled back to the link.
+const SHARED = parseShare(location.search, DESTINATIONS.map((d) => d.id));
+if (SHARED) {
+  if (SHARED.destId) S.destId = SHARED.destId;
+  if (SHARED.direction) S.direction = SHARED.direction;
+  if (SHARED.depart) S.depart = SHARED.depart;
+  S.tab = 'verdict';
+  try { history.replaceState(null, '', location.pathname); } catch { /* keep the address as it is */ }
+}
+let sharedCheck = !!SHARED?.depart; // the link's departure still has to be checked against the forecast
 
 // ---------- formatting ----------
 const loc = () => (S.lang === 'zh' ? 'zh-CN' : 'en-US');
@@ -144,6 +156,12 @@ async function fetchData(id) {
     else S.chainLiveAt = null;
     S.data = d;
     S.ix = L.index(d);
+    if (sharedCheck) { // a link to an hour that has gone by, or is beyond the forecast, shows "now" and says so
+      sharedCheck = false;
+      const dep = sharedDepart(S.depart, S.ix.hours, Date.now());
+      S.shareGone = dep !== S.depart;
+      S.depart = dep;
+    }
     S.error = null;
     S.offline = r.headers.get('X-Offline-Copy') === '1'; // set by sw.js when it had to fall back to its saved copy
   } catch (e) {
@@ -182,6 +200,7 @@ const svg = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 const IC = {
   x: svg('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'),
   refresh: svg('<path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>'),
+  share: svg('<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="m16 6-4-4-4 4"/><path d="M12 2v13"/>'),
   settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>'),
 };
 const seg = (act, cur, opts) => `<div class="seg" role="group">${opts.map(([v, label, tip]) => `<button data-act="${act}" data-v="${v}" class="${v === cur ? 'on' : ''}" aria-pressed="${v === cur}"${tip ? ` data-tip="${tip}" aria-label="${tip}"` : ''}>${label}</button>`).join('')}</div>`;
@@ -460,7 +479,8 @@ function viewVerdict() {
     ${seg('direction', S.direction, [['out', t('out')], ['back', t('back')]])}
     ${seg('mode', pick ? 'pick' : 'now', [['now', t('now')], ['pick', t('pick')]])}
     ${pick ? `<select data-change="day" aria-label="${t('day')}">${S.ix.days.map((x) => `<option value="${x}" ${x === day ? 'selected' : ''}>${fDay(x)}${x === L.dayKey(Date.now()) || x === L.dayKey(Date.now() + 864e5) ? ' · ' + fDayFull(x) : ''}</option>`).join('')}</select>` : ''}
-  </div>`;
+    <button class="ghost share" data-act="share">${IC.share}<span>${t('share')}</span></button>
+  </div>${S.shareGone ? `<p class="note">${t('shareGone')}</p>` : ''}`;
 
   // Change alert for this direction: the one that is on, and a button to watch the hour picked on the strip.
   const plan = alerts.plan(S.direction);
@@ -821,12 +841,44 @@ $('#dlg').addEventListener('cancel', (e) => { e.preventDefault(); closeDlg(); })
 $('#dlg').addEventListener('submit', (e) => { e.preventDefault(); closeDlg(); });
 $('#dlg').addEventListener('close', () => { closeAsk = false; });
 
+// ---------- sharing ----------
+// A link to the view on the verdict tab. Phones and tablets hand it to the system share sheet; elsewhere it
+// is copied, which is what a share sheet on a computer mostly ends in anyway.
+function shareView(btn) {
+  const d = dest();
+  const url = `${location.origin}${location.pathname}?${shareQuery(S)}`;
+  const text = [nm(d.name), t(S.direction), S.depart === 'now' ? '' : `${fDayFull(S.depart.day)} ${fHour(S.depart.h)}`].filter(Boolean).join(' · ');
+  const done = (k) => {
+    const label = btn.querySelector('span');
+    if (!label) return;
+    label.textContent = t(k);
+    setTimeout(() => { if (label.isConnected) label.textContent = t('share'); }, 2500);
+  };
+  const copy = () => copyText(url).then(() => done('shareCopied'), () => done('shareFail'));
+  if (navigator.share && matchMedia('(pointer: coarse)').matches) {
+    navigator.share({ title: 'Tahoe Trip Planner', text, url }).catch((e) => { if (e?.name !== 'AbortError') copy(); }); // closing the sheet is not a failure
+  } else copy();
+}
+// The clipboard API needs a secure page and permission; the old selection-based copy covers the rest.
+async function copyText(s) {
+  try { await navigator.clipboard.writeText(s); return; } catch { /* fall through */ }
+  const ta = Object.assign(document.createElement('textarea'), { value: s, readOnly: true });
+  ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+  document.body.append(ta);
+  ta.select();
+  const ok = document.execCommand('copy');
+  ta.remove();
+  if (!ok) throw new Error('copy');
+}
+
 // ---------- events ----------
 const setPref = (k, v) => { S[k] = v; store.set(k, v); };
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-act]');
   if (!b) return;
   const v = b.dataset.v;
+  if (b.dataset.act === 'share') return shareView(b);
+  S.shareGone = false; // the note about an expired link has been seen once the reader does anything
   switch (b.dataset.act) {
     // These three live in the settings dialog, which is redrawn in place.
     case 'lang': case 'tu': case 'lu': setPref(b.dataset.act, v); if (b.closest('#dlg')) { t = makeT(S.lang); openSettings(); } break;
@@ -895,6 +947,7 @@ document.addEventListener('click', (e) => {
 document.addEventListener('change', (e) => {
   const el = e.target.closest('[data-change]');
   if (!el) return;
+  S.shareGone = false;
   switch (el.dataset.change) {
     case 'day': S.depart = { day: el.value, h: S.depart === 'now' ? 8 : S.depart.h }; break;
     case 'dest': destroyMap(); setPref('destId', el.value); store.set('dest', el.value); S.data = null; S.chainLiveAt = null; S.camsLoaded.clear(); loadData(); break;
