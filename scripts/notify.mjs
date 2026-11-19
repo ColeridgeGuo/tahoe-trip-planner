@@ -6,7 +6,7 @@ import { writeFile, readFile } from 'node:fs/promises';
 import { createECDH, createCipheriv, createPrivateKey, createHash, hkdfSync, randomBytes, sign } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { DESTINATIONS, DEFAULT_VEHICLE } from '../js/config.js';
-import { evaluate, chainFor, LV, hourOf, quotaState } from '../js/logic.js';
+import { evaluate, chainOn, LV, hourOf, quotaState } from '../js/logic.js';
 import { makeT } from '../js/i18n.js';
 
 const FILE = 'tahoe-trip-alerts.json';
@@ -36,7 +36,7 @@ export function planState(data, dest, plan, vehicle, nowMs = Date.now()) {
     drive: ev.drive.src !== 'fixed', // false: no TomTom time for this departure, the fixed estimate was used
     ...(ev.drive.src !== 'fixed' ? { sec: Math.round(ev.drive.sec) } : {}), // the TomTom drive time, when there is one
     ...(ev.drive.src !== 'fixed' && ev.drive.snowMin ? { snowMin: ev.drive.snowMin } : {}), // minutes the snow is expected to add, [from, to]
-    chain: chainFor(data, r.highway, ev.dir).max,
+    chain: chainOn(data, r, plan.direction).max, // every road of the trip, e.g. I-80 and CA-267 for Northstar
     why: worst > 0 ? ev.factors.filter((f) => LV[f.level] === worst).map((f) => f.key) : [],
     ...(partial.length ? { partial } : {}),
   };

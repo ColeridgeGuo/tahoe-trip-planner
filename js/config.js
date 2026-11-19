@@ -1,7 +1,8 @@
 // Destinations are pure config. To add a resort, append an entry here.
 // All internal units are metric (°C, mm, m, km/h); elevFt on points is only a label.
+const ORIGIN = { id: 'origin', name: { zh: '圣马特奥', en: 'San Mateo' }, lat: 37.563, lon: -122.3255, offsetH: 0, role: 'origin' };
 const US50_POINTS = [
-  { id: 'origin', name: { zh: '圣马特奥', en: 'San Mateo' }, lat: 37.563, lon: -122.3255, offsetH: 0, role: 'origin' },
+  ORIGIN,
   { id: 'sac', name: { zh: '萨克拉门托', en: 'Sacramento' }, lat: 38.5816, lon: -121.4944, offsetH: 1.75, role: 'valley' },
   { id: 'placerville', name: { zh: 'Placerville', en: 'Placerville' }, lat: 38.7296, lon: -120.7985, offsetH: 2.4, role: 'foothill' },
   { id: 'kyburz', name: { zh: 'Kyburz', en: 'Kyburz' }, lat: 38.7746, lon: -120.2977, offsetH: 3.0, role: 'mountain' },
@@ -12,12 +13,19 @@ const US50_POINTS = [
 export const DESTINATIONS = [
   {
     id: 'heavenly',
+    // How often TomTom drive times are refreshed: 'full' or 'light' (scripts/lib.mjs). The daily quota is
+    // split about 2:1:1 between this destination and the other two.
+    // Where drive times come from. 'tomtom': fetched and shown on the page (this uses the whole free monthly
+    // TomTom allowance, so only one destination has it). 'maps': nothing is fetched; the page shows the usual
+    // drive time and a link that opens the live one in Google Maps.
+    driveTimes: 'tomtom',
     name: { zh: 'Heavenly', en: 'Heavenly' },
     route: {
       label: 'US-50',
       highway: 'US-50',
       driveHours: 3.75,
       distanceKm: 335,
+      climb: { zh: '2,250 m', en: '7,400 ft' }, // to the highest point of the drive, for the EV range note
       mapFocus: [[38.68, -120.86], [38.97, -119.9]], // default map view: the mountain section
       outboundDir: 'East',
       returnDir: 'West',
@@ -65,6 +73,7 @@ export const DESTINATIONS = [
     },
     resort: {
       basePoint: 'base',
+      windLifts: { zh: 'Gondola 和山顶缆车', en: 'Gondola and summit lifts' }, // what a strong summit wind stops first
       summitPoint: 'summit',
       cams: [
         { name: { zh: 'Tram 缆车', en: 'Tram' }, embed: 'https://player.brownrice.com/embed/heavenlytram' },
@@ -76,6 +85,147 @@ export const DESTINATIONS = [
         cams: 'https://www.skiheavenly.com/the-mountain/mountain-conditions/mountain-cams.aspx',
         lifts: 'https://www.skiheavenly.com/the-mountain/mountain-conditions/terrain-and-lift-status.aspx',
         snow: 'https://www.skiheavenly.com/the-mountain/mountain-conditions/snow-and-weather-report.aspx',
+      },
+    },
+  },
+  {
+    id: 'kirkwood',
+    driveTimes: 'maps',
+    name: { zh: 'Kirkwood', en: 'Kirkwood' },
+    route: {
+      label: 'CA-88',
+      highway: 'SR-88',
+      driveHours: 3.5,
+      distanceKm: 288,
+      climb: { zh: '2,450 m', en: '8,000 ft' },
+      mapFocus: [[38.38, -120.72], [38.74, -120.03]],
+      outboundDir: 'East',
+      returnDir: 'West',
+      // The trip leaves CA-88 at Kirkwood Meadows Dr. Chain checkpoints, closures and incidents further east
+      // (Caples Lake, Carson Pass) are not on it.
+      lonMax: -120.075,
+      points: [
+        ORIGIN,
+        { id: 'stockton', name: { zh: '斯托克顿', en: 'Stockton' }, lat: 37.9577, lon: -121.2908, offsetH: 1.3, role: 'valley' },
+        { id: 'pinegrove', name: { zh: 'Pine Grove', en: 'Pine Grove' }, lat: 38.4079, lon: -120.6503, offsetH: 2.45, role: 'foothill' },
+        { id: 'hams', name: { zh: "Ham's Station", en: "Ham's Station" }, lat: 38.5446, lon: -120.371, offsetH: 2.9, role: 'mountain' },
+        { id: 'spur', name: { zh: 'Carson Spur', en: 'Carson Spur' }, lat: 38.7056, lon: -120.109, offsetH: 3.3, role: 'mountain' },
+        { id: 'town', name: { zh: 'Kirkwood 村', en: 'Kirkwood village' }, lat: 38.6846, lon: -120.0652, offsetH: 3.5, role: 'mountain' },
+        { id: 'summit', name: { zh: 'Kirkwood 山顶', en: 'Kirkwood summit' }, lat: 38.662, lon: -120.062, role: 'resort' },
+      ],
+      mountainPoints: ['hams', 'spur', 'town'],
+      // Both on the two-lane mountain stretch of CA-88 (Caltrans chain-control checkpoints).
+      drivePins: ['hams', 'spur'],
+      townPoint: 'town',
+      mountainLonMin: -120.7, // Pine Grove
+      mapsPlace: 'Kirkwood Mountain Resort, Kirkwood, CA', // the resort end of the Google Maps link
+      // US-50 to Meyers, CA-89 over Luther Pass, then CA-88 back west over Carson Pass.
+      alternates: [
+        {
+          highway: 'US-50',
+          label: { zh: 'US-50 (Echo Summit) → CA-89 → CA-88 (Carson Pass)', en: 'US-50 (Echo Summit) → CA-89 → CA-88 (Carson Pass)' },
+          legs: [
+            { highway: 'US-50', out: 'East', back: 'West', box: { lonMax: -119.99 } },
+            { highway: 'SR-89', out: 'South', back: 'North', box: { latMin: 38.77, latMax: 38.87, lonMax: -119.915 } },
+            { highway: 'SR-88', out: 'West', back: 'East', box: { lonMin: -120.07, lonMax: -119.915 } },
+          ],
+        },
+      ],
+    },
+    feeds: {
+      ccDistricts: [10, 3],
+      chainHighways: ['SR-88', 'US-50', 'SR-89'],
+      cctvDistricts: [10],
+      camHighway: 'SR-88',
+      camLonMin: -120.7,
+      lcsDistricts: [10],
+      incidentBox: { latMin: 38.2, latMax: 38.8, lonMin: -121.1, lonMax: -120.0 },
+      incidentMatch: '(^|[^0-9])88([^0-9]|$)',
+      alertPoints: ['spur', 'town', 'summit'],
+    },
+    resort: {
+      basePoint: 'town',
+      windLifts: { zh: '高处缆车', en: 'Upper lifts' },
+      summitPoint: 'summit',
+      cams: [
+        { name: { zh: 'Cornice', en: 'Cornice' }, embed: 'https://player.brownrice.com/embed/kirkwoodcornice' },
+      ],
+      links: {
+        cams: 'https://www.kirkwood.com/the-mountain/mountain-conditions/mountain-cams.aspx',
+        lifts: 'https://www.kirkwood.com/the-mountain/mountain-conditions/terrain-and-lift-status.aspx',
+        snow: 'https://www.kirkwood.com/the-mountain/mountain-conditions/snow-and-weather-report.aspx',
+      },
+    },
+  },
+  {
+    id: 'northstar',
+    driveTimes: 'maps',
+    name: { zh: 'Northstar', en: 'Northstar' },
+    route: {
+      label: 'I-80',
+      highway: 'I-80',
+      driveHours: 3.75,
+      distanceKm: 345,
+      climb: { zh: '2,200 m', en: '7,200 ft' },
+      mapFocus: [[39.05, -121.0], [39.42, -120.05]],
+      outboundDir: 'East',
+      returnDir: 'West',
+      // The trip leaves I-80 at the CA-267 junction in Truckee; what lies further east (Boca, Floriston, the
+      // state line) is not on it.
+      lonMax: -120.16,
+      // The last stretch, Truckee to Northstar Dr, is on CA-267, which has its own chain control and runs
+      // north-south. It is checked along with the main highway, each in its own direction of travel.
+      also: [{ highway: 'SR-267', label: 'CA-267', outboundDir: 'South', returnDir: 'North' }],
+      points: [
+        ORIGIN,
+        // Where I-80 passes Sacramento (north of downtown), so the drive can be timed against it.
+        { id: 'sac', name: { zh: '萨克拉门托', en: 'Sacramento' }, lat: 38.6415, lon: -121.4697, offsetH: 1.8, role: 'valley' },
+        { id: 'colfax', name: { zh: 'Colfax', en: 'Colfax' }, lat: 39.1007, lon: -120.9533, offsetH: 2.65, role: 'foothill' },
+        { id: 'gap', name: { zh: 'Emigrant Gap', en: 'Emigrant Gap' }, lat: 39.2968, lon: -120.6727, offsetH: 3.05, role: 'mountain' },
+        // I-80 is a divided freeway, so the drive-time waypoint sits on the carriageway of each direction
+        // (a single point could snap to the far side and force a turn-around).
+        { id: 'pass', name: { zh: 'Donner Summit 垭口', en: 'Donner Summit' }, lat: 39.3393, lon: -120.3472, offsetH: 3.35, role: 'mountain', pin: { out: [39.33949, -120.347], back: [39.33995, -120.34771] } },
+        { id: 'truckee', name: { zh: 'Truckee', en: 'Truckee' }, lat: 39.328, lon: -120.1833, offsetH: 3.5, role: 'mountain' },
+        { id: 'town', name: { zh: 'Northstar 村', en: 'Northstar village' }, lat: 39.2746, lon: -120.121, offsetH: 3.75, role: 'mountain' },
+        { id: 'summit', name: { zh: 'Northstar 山顶', en: 'Northstar summit' }, lat: 39.25, lon: -120.135, role: 'resort' },
+      ],
+      mountainPoints: ['gap', 'pass', 'truckee', 'town'],
+      drivePins: ['pass'],
+      townPoint: 'town',
+      mountainLonMin: -121.0, // just below Colfax
+      mapsPlace: 'Northstar California Resort, Truckee, CA',
+      // US-50 to South Lake Tahoe, then CA-89 up the west shore past Emerald Bay.
+      alternates: [
+        {
+          highway: 'US-50',
+          label: { zh: 'US-50 (Echo Summit) → CA-89', en: 'US-50 (Echo Summit) → CA-89' },
+          legs: [{ highway: 'US-50', out: 'East', back: 'West' }, { highway: 'SR-89', out: 'North', back: 'South', box: { latMin: 38.9, latMax: 39.18 } }],
+        },
+      ],
+    },
+    feeds: {
+      ccDistricts: [3],
+      chainHighways: ['I-80', 'SR-267', 'US-50', 'SR-89'],
+      cctvDistricts: [3],
+      camRoads: [{ highway: 'I-80', lonMin: -121.0, lonMax: -120.16 }, { highway: 'SR-267' }],
+      lcsDistricts: [3],
+      incidentBox: { latMin: 38.5, latMax: 39.45, lonMin: -121.6, lonMax: -120.0 },
+      incidentMatch: '(^|[^0-9])80([^0-9]|$)',
+      alertPoints: ['pass', 'town', 'summit'],
+    },
+    resort: {
+      basePoint: 'town',
+      windLifts: { zh: 'Gondola 和山顶缆车', en: 'Gondola and summit lifts' },
+      summitPoint: 'summit',
+      cams: [
+        { name: { zh: 'Village 村', en: 'Village' }, embed: 'https://player.brownrice.com/embed/northstarvillage' },
+        { name: { zh: '半山 (Tahoe Zephyr)', en: 'Mid-mountain (Tahoe Zephyr)' }, embed: 'https://player.brownrice.com/embed/northstarmidmountain' },
+        { name: { zh: '量雪尺', en: 'Snow stake' }, embed: 'https://player.brownrice.com/embed/northstarsnowstake' },
+      ],
+      links: {
+        cams: 'https://www.northstarcalifornia.com/the-mountain/mountain-conditions/mountain-cams.aspx',
+        lifts: 'https://www.northstarcalifornia.com/the-mountain/mountain-conditions/terrain-and-lift-status.aspx',
+        snow: 'https://www.northstarcalifornia.com/the-mountain/mountain-conditions/snow-and-weather-report.aspx',
       },
     },
   },

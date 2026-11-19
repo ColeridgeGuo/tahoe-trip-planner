@@ -1,5 +1,6 @@
 // Shared fixtures: a quiet, fully-fetched data file in the shape scripts/fetch.mjs writes, to be bent per test.
 import { DESTINATIONS, DEFAULT_VEHICLE } from '../js/config.js';
+import { roadsOf } from '../js/logic.js';
 
 export const dest = DESTINATIONS[0];
 export const route = dest.route;
@@ -14,18 +15,19 @@ export const hourIdx = (ms) => Math.round((ms - T0) / H);
 
 export const chainRow = (level, dir = 'East', hw = route.highway) => ({ hw, name: `cc ${hw} ${dir}`, dir, level, status: level === 4 ? 'ROAD CLOSED' : level >= 0 ? `R-${level}` : 'HOLDING' });
 // What the feed shows on a clear day: a checkpoint each way reporting R-0. `chains()` adds rows to that.
-export const quietChain = () => [chainRow(0, 'East'), chainRow(0, 'West')];
+export const quietChain = (r = route) => roadsOf(r).flatMap((x) => [chainRow(0, x.outboundDir, x.highway), chainRow(0, x.returnDir, x.highway)]);
 export const chains = (...rows) => [...quietChain(), ...rows];
 const quiet = { temp: 5, feels: 3, wind: 8, gust: 15, pop: 0, sky: 20, qpf: 0, snow: 0, snowLevel: 2500 };
-export function makeData(over = {}) {
+// `forRoute` builds the file for another destination's route (default: the first, Heavenly).
+export function makeData(over = {}, forRoute = route) {
   const weather = {};
-  for (const p of route.points) {
+  for (const p of forRoute.points) {
     weather[p.id] = { at: NOW, elevM: 1000 };
     for (const [k, v] of Object.entries(quiet)) weather[p.id][k] = new Array(168).fill(v);
   }
   const status = {};
   for (const k of ['chain', 'cams', 'closures', 'incidents', 'alerts', 'weather']) status[k] = { ok: true, at: NOW };
-  return { generatedAt: NOW, t0: T0, hours: 168, status, chain: quietChain(), closures: [], incidents: [], alerts: [], cams: [], weather, drive: null, ...over };
+  return { generatedAt: NOW, t0: T0, hours: 168, status, chain: quietChain(forRoute), closures: [], incidents: [], alerts: [], cams: [], weather, drive: null, ...over };
 }
 // Marks a source as failed on the last refresh; with `dataAt` it still carries data fetched at that time.
 export function fail(data, key, dataAt) {

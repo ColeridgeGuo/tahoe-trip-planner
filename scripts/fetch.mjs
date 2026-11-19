@@ -3,8 +3,8 @@
 import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { DESTINATIONS } from '../js/config.js';
 import { CC_URL, normalizeChain, incidentDir } from '../js/normalize.js';
-import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes, pastSnow, addHistory, quotaUsed, dedupe, streamUrl, liveStreams, MONTHLY_QUOTA, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours } from './lib.mjs';
-import { chainFor } from '../js/logic.js';
+import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes, pastSnow, addHistory, quotaUsed, dedupe, streamUrl, liveStreams, incidentRoad, MONTHLY_QUOTA, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours } from './lib.mjs';
+import { chainFor, roadsOf } from '../js/logic.js';
 
 const UA = 'tahoe-trip-planner (personal trip dashboard, github pages)';
 const pad = (d) => String(d).padStart(2, '0');
@@ -67,15 +67,18 @@ async function chain(feeds) {
 
 async function cams(feeds) {
   const out = [];
+  // Which highways to show cameras for, and between which longitudes.
+  const roads = feeds.camRoads || [{ highway: feeds.camHighway, lonMin: feeds.camLonMin }];
   for (const d of feeds.cctvDistricts) {
     const j = await get(`https://cwwp2.dot.ca.gov/data/d${d}/cctv/cctvStatusD${pad(d)}.json`);
     for (const { cctv: c } of j.data) {
       const l = c.location;
-      if (l.route !== feeds.camHighway || c.inService !== 'true' || +l.longitude < feeds.camLonMin) continue;
+      const road = roads.find((x) => x.highway === l.route);
+      if (!road || c.inService !== 'true' || +l.longitude < (road.lonMin ?? -Infinity) || +l.longitude > (road.lonMax ?? Infinity)) continue;
       const img = c.imageData?.static?.currentImageURL;
       if (!img) continue;
       out.push({
-        name: l.locationName.replace(/^Hwy \d+ at /i, '').replace(/_/g, ' '),
+        name: l.locationName.replace(/^Hwy \d+ at /i, '').replace(/^\d+ - /, '').replace(/_/g, ' '),
         place: l.nearbyPlace,
         lat: +l.latitude,
         lon: +l.longitude,
@@ -89,15 +92,18 @@ async function cams(feeds) {
   return liveStreams(out.sort((a, b) => a.lon - b.lon), probe);
 }
 
-async function closures(feeds, hw) {
+async function closures(feeds, route) {
   const now = Date.now();
+  const roads = roadsOf(route);
   const out = [];
   for (const d of feeds.lcsDistricts) {
     const j = await get(`https://cwwp2.dot.ca.gov/data/d${d}/lcs/lcsStatusD${pad(d)}.json`);
     for (const { lcs: c } of j.data) {
       const b = c.location.begin;
       const e = c.location.end;
-      if (b.beginRoute !== hw) continue;
+      const road = roads.find((x) => x.highway === b.beginRoute);
+      if (!road) continue;
+      if (road.lonMax != null && Math.min(+b.beginLongitude, +e.endLongitude) > road.lonMax) continue; // past the turn-off
       const k = c.closure;
       const t = k.closureTimestamp;
       const start = +t.closureStartEpoch * 1000;
@@ -106,6 +112,7 @@ async function closures(feeds, hw) {
       if (k.code1098?.isCode1098 === 'true') continue; // crew reported finished
       if ((end && end < now) || start > now + 8 * 864e5) continue;
       out.push({
+        hw: road.highway,
         from: b.beginLocationName,
         to: e.endLocationName,
         place: b.beginNearbyPlace,
@@ -134,10 +141,8 @@ const unq = (s) => (s || '').replace(/^"|"$/g, '').trim();
 const tag = (x, t) => unq((new RegExp(`<${t}>([\\s\\S]*?)</${t}>`).exec(x) || [])[1]);
 async function incidents(feeds, route) {
   const xml = await get('https://media.chp.ca.gov/sa_xml/sa.xml', { json: false });
-  const re = new RegExp(feeds.incidentMatch, 'i');
   const box = feeds.incidentBox;
-  const hwNum = route.highway.replace(/\D/g, '');
-  const dirs = [route.outboundDir, route.returnDir];
+  const roads = roadsOf(route);
   const out = [];
   for (const log of xml.split('<Log ').slice(1)) {
     const ll = /(\d+):(\d+)/.exec(tag(log, 'LATLON'));
@@ -147,7 +152,10 @@ async function incidents(feeds, route) {
     if (lat < box.latMin || lat > box.latMax || lon < box.lonMin || lon > box.lonMax) continue;
     const loc = tag(log, 'Location');
     const desc = tag(log, 'LocationDesc');
-    if (!re.test(loc) && !re.test(desc)) continue;
+    const on = incidentRoad(loc, desc, roads, feeds.incidentMatch, incidentDir);
+    if (!on) continue;
+    const lonMax = roads.find((x) => x.highway === on.hw).lonMax;
+    if (lonMax != null && lon > lonMax) continue; // past the turn-off
     const details = [...log.matchAll(/<IncidentDetail>([\s\S]*?)<\/IncidentDetail>/g)].map((m) => unq(m[1]).replace(/^\[\d+\]\s*/, ''));
     out.push({
       id: (/ID = "([^"]+)"/.exec(log) || [])[1],
@@ -155,7 +163,8 @@ async function incidents(feeds, route) {
       type: tag(log, 'LogType').replace(/^\w+-/, ''),
       loc,
       desc,
-      dir: incidentDir(loc, desc, hwNum, dirs),
+      hw: on.hw,
+      dir: on.dir,
       area: tag(log, 'Area'),
       lat,
       lon,
@@ -244,7 +253,9 @@ const LONG_RETRY_MS = 60 * 6e4; // after a failed long refresh, wait this long r
 async function drive(dest, prevFile) {
   const pt = (id) => dest.route.points.find((p) => p.id === id);
   const way = [dest.route.points[0], ...dest.route.drivePins.map(pt), pt(dest.route.townPoint)];
-  const dirs = { out: way, back: [...way].reverse() };
+  // A waypoint on a divided road has a spot on each carriageway (`pin`), used for the matching direction.
+  const pinned = (p, k) => (p.pin ? { ...p, lat: p.pin[k][0], lon: p.pin[k][1] } : p);
+  const dirs = { out: way.map((p) => pinned(p, 'out')), back: [...way].reverse().map((p) => pinned(p, 'back')) };
   // The points the page shows conditions for, in route order (west to east). Every drive time carries
   // `stops`: seconds from departure to each of them, in this order whichever way the trip goes.
   const timed = dest.route.points.filter((p) => p.offsetH != null);
@@ -337,7 +348,7 @@ for (const dest of DESTINATIONS) {
   const [ch, cm, cl, inc, al] = await Promise.all([
     source(status, 'chain', () => chain(f), [], prev),
     source(status, 'cams', () => cams(f), [], prev),
-    source(status, 'closures', () => closures(f, dest.route.highway), [], prev),
+    source(status, 'closures', () => closures(f, dest.route), [], prev),
     source(status, 'incidents', () => incidents(f, dest.route), [], prev),
     source(status, 'alerts', () => alerts(pts.filter((p) => f.alertPoints.includes(p.id))), [], prev),
   ]);
@@ -359,14 +370,16 @@ for (const dest of DESTINATIONS) {
   }
   for (const p of pts) if (weather[p.id]) weather[p.id].snowPast = pastSnow(prev, p.id, t0);
   ttCalls = 0;
-  const dr = TT_KEY ? await source(status, 'drive', () => drive(dest, prev), null, prev) : null;
+  // Only a destination marked `driveTimes: 'tomtom'` spends TomTom requests; the others link to Google Maps.
+  const useTT = TT_KEY && dest.driveTimes === 'tomtom';
+  const dr = useTT ? await source(status, 'drive', () => drive(dest, prev), null, prev) : null;
   if (dr?.hourlyError && status.drive.ok) status.drive.hourlyError = dr.hourlyError;
   if (dr) delete dr.hourlyError;
   const wxErr = [failed.length ? `missing: ${failed.join(', ')}` : '', kept.length ? `carried over: ${kept.join(', ')}` : ''].filter(Boolean).join('; ');
   status.weather = wxErr
     ? { ok: false, error: wxErr, at: Date.now(), ...(kept.length ? { dataAt: Math.min(...kept.map((id) => weather[id].at)) } : {}) }
     : { ok: true, at: Date.now() };
-  const tomtom = TT_KEY ? quotaUsed(prev?.tomtom, ttCalls) : null;
+  const tomtom = useTT ? quotaUsed(prev?.tomtom, ttCalls) : null;
   const out = { generatedAt: Date.now(), t0, hours: HOURS, status, chain: ch, closures: cl, incidents: inc, alerts: al, cams: cm, weather, drive: dr, tomtom };
   // What chain control really is this hour, next to what was forecast for it (first destination only: one highway).
   if (dest === DESTINATIONS[0]) {
@@ -385,5 +398,5 @@ for (const dest of DESTINATIONS) {
   console.log(dest.id, Object.entries(status).map(([k, v]) => `${k}:${v.ok ? 'ok' : 'FAIL'}`).join(' '),
     `chain=${ch.length} cams=${cm.length} closures=${cl.length} incidents=${inc.length} alerts=${al.length} weather=${Object.keys(weather).length}`,
     tomtom ? `tomtom: ${ttCalls} requests this run, ${tomtom.n} today (${tomtom.day} UTC), ${tomtom.monthN} of ${MONTHLY_QUOTA} in ${tomtom.month}${tomtom.prev ? `, ${tomtom.prev.n} on ${tomtom.prev.day}` : ''}` : '',
-    dr ? `drive: out ${Math.round(dr.out.sec / 60)}min back ${Math.round(dr.back.sec / 60)}min hourly=${dr.hourly.out.length} (${Math.round((Date.now() - dr.hourlyAt) / 6e4)}min old) long=${dr.long?.out.length ?? 0} (${Math.round((Date.now() - (dr.longAt || 0)) / 6e4)}min old)` : TT_KEY ? 'drive: FAILED' : 'drive: no TOMTOM_KEY');
+    dr ? `drive: out ${Math.round(dr.out.sec / 60)}min back ${Math.round(dr.back.sec / 60)}min hourly=${dr.hourly.out.length} (${Math.round((Date.now() - dr.hourlyAt) / 6e4)}min old) long=${dr.long?.out.length ?? 0} (${Math.round((Date.now() - (dr.longAt || 0)) / 6e4)}min old)` : dest.driveTimes !== 'tomtom' ? 'drive: not fetched (Google Maps link)' : TT_KEY ? 'drive: FAILED' : 'drive: no TOMTOM_KEY');
 }
