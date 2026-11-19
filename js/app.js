@@ -462,7 +462,7 @@ function weekHtml() {
       const pct = drive ? Math.round(30 + 70 * (span > 60 ? (c.drive.sec - wk.lo) / span : 0.5)) : 30;
       const sel = S.depart !== 'now' && S.direction === dir && S.depart.day === r.day && S.depart.h === c.h;
       const tip = `${fDay(r.day)} ${fHour(c.h)}${drive ? ' · ' + fDur(c.drive.sec, true) : ''}`;
-      return `<button data-act="wk" data-v="${dir}|${r.day}|${c.h}" class="${c.past ? 'past' : c.level}${c.heavy && !c.past ? ' heavy' : ''}${drive ? '' : ' nd'}${sel ? ' sel' : ''}${c === r.best ? ' best' : ''}" ${c.past ? 'disabled' : ''} title="${tip}" aria-label="${tip}"><i style="height:${pct}%"></i></button>`;
+      return `<button data-act="wk" data-v="${dir}|${r.day}|${c.h}" class="${c.past ? 'past' : c.level}${c.heavy && !c.past ? ' heavy' : ''}${drive || d.driveTimes === 'maps' ? '' : ' nd'}${sel ? ' sel' : ''}${c === r.best ? ' best' : ''}" ${c.past ? 'disabled' : ''} title="${tip}" aria-label="${tip}"><i style="height:${pct}%"></i></button>`;
     }).join('')}</div></div>`).join('');
     return `<h3 class="wkdir">${t(dir)} · ${esc(nm(ends[0].name))} → ${esc(nm(ends[1].name))}${wk.lo == null ? '' : `<span>${t('driveLabel')} ${fDur(wk.lo, true)} – ${fDur(wk.hi, true)}</span>`}</h3><div class="wk">${head}${rows}</div>`;
   };
