@@ -146,7 +146,6 @@ async function liveChain() {
 // Inline SVG icons (Feather, MIT) so they render identically on every platform instead of as emoji.
 const svg = (d) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const IC = {
-  theme: svg('<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" stroke="none"/>'),
   refresh: svg('<path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>'),
   settings: svg('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>'),
 };
@@ -199,9 +198,8 @@ function renderChrome() {
   $('#title').innerHTML = `<span class="brand"><img class="logo" src="icon.svg" alt="" width="24" height="24">Tahoe Trip Planner</span><span class="where">` + (DESTINATIONS.length > 1
     ? `<select data-change="dest" aria-label="${t('dest')}">${DESTINATIONS.map((x) => `<option value="${x.id}" ${x.id === d.id ? 'selected' : ''}>${esc(nm(x.name))}</option>`).join('')}</select>${sub}`
     : `<strong>${esc(nm(d.name))}</strong>${sub}`) + '</span>';
+  // Language, units and theme are set-once choices and live in the settings dialog.
   $('#toggles').innerHTML =
-    seg('lang', S.lang, [['zh', '中', t('tip.zh')], ['en', 'EN', t('tip.en')]]) + seg('tu', S.tu, [['C', '°C', t('tip.C')], ['F', '°F', t('tip.F')]]) + seg('lu', S.lu, [['imp', 'in·ft', t('tip.imp')], ['met', 'cm·m', t('tip.met')]]) +
-    `<button class="icon" data-act="theme" data-tip="${t('tip.theme')}" aria-label="${t('theme')}: ${t('th.' + S.theme)}">${IC.theme}</button>` +
     `<button class="icon" data-act="refresh" data-tip="${t('tip.refresh')}" aria-label="${t('refresh')}">${IC.refresh}</button><button class="icon" data-act="settings" data-tip="${t('tip.settings')}" aria-label="${t('settings')}">${IC.settings}</button>`;
   $('#tabs').innerHTML = TABS.map((k) => `<a href="#${k}" class="${k === S.tab ? 'on' : ''}" ${k === S.tab ? 'aria-current="page"' : ''}>${t('tabs.' + k)}</a>`).join('');
   const st = S.data
@@ -625,8 +623,8 @@ function openSettings() {
   const chk = (k, label) => `<label class="chk"><input type="checkbox" data-change="veh" data-v="${k}" ${v[k] ? 'checked' : ''}>${label}</label>`;
   $('#dlg').innerHTML = `<form method="dialog"><h2>${t('settings')}</h2>
     <h3>${t('theme')}</h3>${seg('themeSet', S.theme, [['auto', t('th.auto')], ['light', t('th.light')], ['dark', t('th.dark')]])}
-    <div class="phoneonly"><h3>${t('lang')}</h3>${seg('lang', S.lang, [['zh', '中', t('tip.zh')], ['en', 'EN', t('tip.en')]])}
-    <h3>${t('units')}</h3><div class="segs">${seg('tu', S.tu, [['C', '°C', t('tip.C')], ['F', '°F', t('tip.F')]])}${seg('lu', S.lu, [['imp', 'in·ft', t('tip.imp')], ['met', 'cm·m', t('tip.met')]])}</div></div>
+    <h3>${t('lang')}</h3>${seg('lang', S.lang, [['zh', '中', t('tip.zh')], ['en', 'EN', t('tip.en')]])}
+    <h3>${t('units')}</h3><div class="segs">${seg('tu', S.tu, [['C', '°C', t('tip.C')], ['F', '°F', t('tip.F')]])}${seg('lu', S.lu, [['imp', 'in·ft', t('tip.imp')], ['met', 'cm·m', t('tip.met')]])}</div>
     <h3>${t('vehicle')}</h3>${seg('drive', v.drive, [['awd', t('awd')], ['2wd', t('twd')]])}<div class="chks">${chk('snowTires', t('snowTires'))}${chk('chains', t('chains'))}${chk('ev', t('ev'))}</div>
     <h3>${t('syncTitle')}</h3><p class="note">${t('syncHelp')} <a href="https://github.com/settings/tokens/new?scopes=gist&description=Tahoe%20Run%20checklist" target="_blank" rel="noopener">${t('makeToken')} ↗</a></p>
     ${list.hasToken() ? `<p><span class="tag ${list.status()}">${t('sync.' + list.status())}</span> <button type="button" class="ghost" data-act="disconnect">${t('disconnect')}</button></p>${list.status() === 'err' ? `<p class="note">${syncWhy()}</p>` : ''}`
@@ -748,14 +746,8 @@ document.addEventListener('click', (e) => {
   if (!b) return;
   const v = b.dataset.v;
   switch (b.dataset.act) {
-    // On a phone these three live in the settings dialog, which is redrawn in place.
+    // These three live in the settings dialog, which is redrawn in place.
     case 'lang': case 'tu': case 'lu': setPref(b.dataset.act, v); if (b.closest('#dlg')) { t = makeT(S.lang); openSettings(); } break;
-    case 'theme': { // one click always flips what is on screen; landing on the device's own scheme resumes following it
-      const sysDark = matchMedia('(prefers-color-scheme: dark)').matches;
-      const dark = S.theme === 'dark' || (S.theme === 'auto' && sysDark);
-      setPref('theme', !dark === sysDark ? 'auto' : dark ? 'light' : 'dark');
-      break;
-    }
     case 'themeSet': setPref('theme', v); t = makeT(S.lang); openSettings(); break;
     case 'direction': setPref('direction', v); break;
     case 'mode': S.depart = v === 'now' ? 'now' : { day: L.dayKey(Date.now()), h: Math.min(23, L.hourOf(Date.now()) + 1) }; break;

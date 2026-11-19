@@ -202,21 +202,17 @@ footer{max-width:60rem;margin:auto;padding:0.25rem 1.25rem 1rem;font-size:0.7188
   #toggles [data-tip]::after{content:attr(data-tip);position:absolute;top:calc(100% + 0.5rem);left:50%;transform:translateX(-50%);z-index:20;white-space:nowrap;
     background:var(--ink);color:var(--bg);font-size:0.75rem;font-weight:500;line-height:1.3;padding:0.3rem 0.55rem;border-radius:0.4rem;pointer-events:none;opacity:0;transition:opacity .12s .25s}
   #toggles .icon[data-tip]::after{left:auto;right:0;transform:none}
-  #toggles .seg:first-child button:first-child::after{left:0;transform:none}
   header{position:relative;z-index:7}
   #toggles [data-tip]:hover::after,#toggles [data-tip]:focus-visible::after{opacity:1}
 }
 
 .icon svg{width:1rem;height:1rem;display:block}
-/* phone: only refresh and settings stay in the header, right of the title; language, units and theme move into the settings dialog */
-@media (max-width:719px){
-  .bar{flex-wrap:nowrap;align-items:flex-start}
-  #title{min-width:0}
-  #toggles{flex:none;flex-wrap:nowrap;gap:0.375rem}
-  #toggles .seg,#toggles [data-act=theme]{display:none}
-}
+/* header: refresh and settings sit right of the title at every width; language, units and theme are in the settings dialog */
+.bar{flex-wrap:nowrap}
+#title{min-width:0}
+#toggles{flex:none;flex-wrap:nowrap;gap:0.375rem}
+@media (max-width:719px){.bar{align-items:flex-start}}
 .segs{display:flex;gap:0.375rem;flex-wrap:wrap}
-@media (min-width:720px){.phoneonly{display:none}}
 
 /* map */
 #map{height:24rem;border-radius:0.625rem;overflow:hidden;background:var(--soft);isolation:isolate;margin-top:0.5rem;font:inherit}
@@ -271,3 +267,9 @@ footer{max-width:60rem;margin:auto;padding:0.25rem 1.25rem 1rem;font-size:0.7188
 /* the destination and route always sit on their own line under the page title */
 #title{flex-direction:column;align-items:flex-start;flex-wrap:nowrap}
 @media (min-width:900px) and (max-width:1149px){#title .via{display:inline}}
+/* dropdowns: own chevron with room around it instead of the browser's cramped arrow */
+select{appearance:none;-webkit-appearance:none;cursor:pointer;padding-right:1.875rem;
+  background:var(--soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a93a0' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 0.5625rem center/0.875rem}
+/* the resort picker is the page's main choice: full-strength text, lined up with the route beside it */
+#title select{color:var(--ink);font-weight:600;font-size:0.875rem}
+.where{align-items:center}
