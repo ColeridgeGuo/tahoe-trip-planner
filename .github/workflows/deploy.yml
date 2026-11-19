@@ -17,9 +17,12 @@ permissions:
   pages: write
   id-token: write
 
+# A run that is already fetching is left to finish and the new one starts after it (GitHub keeps only the
+# newest waiting run). Cancelling it half-way threw away the TomTom requests it had already sent: they were
+# neither published nor counted, and the next run sent them again.
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:

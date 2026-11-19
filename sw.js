@@ -58,11 +58,28 @@ async function networkFirst(e) {
   }
 }
 
+// The libraries under js/vendor/ only change when a new version is put in, under the same name, which is rare.
+// They are answered from the saved copy at once and refreshed in the background, so the map and the camera
+// player do not wait on a weak connection; a new version is picked up on the visit after.
+async function cacheFirst(e) {
+  const key = keyOf(e.request);
+  const cache = await caches.open(CACHE);
+  const net = fetch(e.request).then(async (res) => {
+    if (res.ok) await cache.put(key, res.clone());
+    return res;
+  });
+  const hit = await cache.match(key);
+  if (!hit) return net;
+  e.waitUntil(net.catch(() => {}));
+  return hit;
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   // Only this site's own files. Map tiles, cameras, Caltrans and GitHub requests go straight to the network.
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
-  e.respondWith(networkFirst(e));
+  const u = new URL(req.url);
+  if (req.method !== 'GET' || u.origin !== self.location.origin) return;
+  e.respondWith(u.pathname.includes('/js/vendor/') ? cacheFirst(e) : networkFirst(e));
 });
 
 // Change alerts sent by the scheduled workflow (scripts/notify.mjs). The payload is JSON: { title, body, url, tag }.
