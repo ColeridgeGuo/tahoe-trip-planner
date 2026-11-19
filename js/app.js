@@ -618,6 +618,8 @@ function viewList() {
 }
 
 // ----- dialogs -----
+// A token typed but not yet saved. Kept so that redrawing the dialog, or closing it by a click outside, does not lose it.
+let tokenDraft = '';
 function openSettings() {
   const v = S.vehicle;
   const chk = (k, label) => `<label class="chk"><input type="checkbox" data-change="veh" data-v="${k}" ${v[k] ? 'checked' : ''}>${label}</label>`;
@@ -628,7 +630,7 @@ function openSettings() {
     <h3>${t('vehicle')}</h3>${seg('drive', v.drive, [['awd', t('awd')], ['2wd', t('twd')]])}<div class="chks">${chk('snowTires', t('snowTires'))}${chk('chains', t('chains'))}${chk('ev', t('ev'))}</div>
     <h3>${t('syncTitle')}</h3><p class="note">${t('syncHelp')} <a href="https://github.com/settings/tokens/new?scopes=gist&description=Tahoe%20Run%20checklist" target="_blank" rel="noopener">${t('makeToken')} ↗</a></p>
     ${list.hasToken() ? `<p><span class="tag ${list.status()}">${t('sync.' + list.status())}</span> <button type="button" class="ghost" data-act="disconnect">${t('disconnect')}</button></p>${list.status() === 'err' ? `<p class="note">${syncWhy()}</p>` : ''}`
-      : `<div class="add"><input id="token" type="password" autocomplete="off" placeholder="${t('tokenPh')}"><button type="button" data-act="connect">${t('save')}</button></div>`}
+      : `<div class="add"><input id="token" type="password" autocomplete="off" placeholder="${t('tokenPh')}" value="${esc(tokenDraft)}"><button type="button" data-act="connect">${t('save')}</button></div>`}
     <h3>${t('al.title')}</h3><p class="note">${t('al.help')}</p>${alertSettings()}
     <button class="ghost close">${t('close')}</button></form>`;
   if (!$('#dlg').open) $('#dlg').showModal();
@@ -726,13 +728,14 @@ async function playLive(i) {
   } else fail();
 }
 $('#dlg').addEventListener('close', stopLive);
-// A click outside the camera dialog closes it. The dialog element covers only its own box, so a click that
+$('#dlg').addEventListener('input', (e) => { if (e.target.id === 'token') tokenDraft = e.target.value; });
+// A click outside a dialog closes it. The dialog element covers only its own box, so a click that
 // lands on it but outside that box is on the backdrop. The press must start outside too, so dragging the
 // video's controls out of the box and letting go there does not close it.
 let dlgDownOutside = false;
 const outsideDlg = (e) => {
   const d = $('#dlg');
-  if (e.target !== d || !d.querySelector('.camdlg')) return false;
+  if (e.target !== d) return false;
   const r = d.getBoundingClientRect();
   return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
 };
@@ -788,7 +791,7 @@ document.addEventListener('click', (e) => {
     case 'del': list.remove(v); return;
     case 'clearDone': list.clearDone(); return;
     case 'drive': S.vehicle.drive = v; store.set('vehicle', S.vehicle); openSettings(); break;
-    case 'connect': { const tok = $('#token').value; if (tok.trim()) list.connect(tok).then(openSettings); return; }
+    case 'connect': { const tok = $('#token').value; if (tok.trim()) { tokenDraft = ''; list.connect(tok).then(openSettings); } return; }
     case 'disconnect': list.disconnect(); return openSettings();
     case 'alertOn': { // asks for notification permission, so it has to start inside this tap
       const h = pickedHour();
