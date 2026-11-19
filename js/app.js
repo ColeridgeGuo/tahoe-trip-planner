@@ -625,6 +625,8 @@ function openSettings() {
   const chk = (k, label) => `<label class="chk"><input type="checkbox" data-change="veh" data-v="${k}" ${v[k] ? 'checked' : ''}>${label}</label>`;
   $('#dlg').innerHTML = `<form method="dialog"><h2>${t('settings')}</h2>
     <h3>${t('theme')}</h3>${seg('themeSet', S.theme, [['auto', t('th.auto')], ['light', t('th.light')], ['dark', t('th.dark')]])}
+    <div class="phoneonly"><h3>${t('lang')}</h3>${seg('lang', S.lang, [['zh', '中', t('tip.zh')], ['en', 'EN', t('tip.en')]])}
+    <h3>${t('units')}</h3><div class="segs">${seg('tu', S.tu, [['C', '°C', t('tip.C')], ['F', '°F', t('tip.F')]])}${seg('lu', S.lu, [['imp', 'in·ft', t('tip.imp')], ['met', 'cm·m', t('tip.met')]])}</div></div>
     <h3>${t('vehicle')}</h3>${seg('drive', v.drive, [['awd', t('awd')], ['2wd', t('twd')]])}<div class="chks">${chk('snowTires', t('snowTires'))}${chk('chains', t('chains'))}${chk('ev', t('ev'))}</div>
     <h3>${t('syncTitle')}</h3><p class="note">${t('syncHelp')} <a href="https://github.com/settings/tokens/new?scopes=gist&description=Tahoe%20Run%20checklist" target="_blank" rel="noopener">${t('makeToken')} ↗</a></p>
     ${list.hasToken() ? `<p><span class="tag ${list.status()}">${t('sync.' + list.status())}</span> <button type="button" class="ghost" data-act="disconnect">${t('disconnect')}</button></p>${list.status() === 'err' ? `<p class="note">${syncWhy()}</p>` : ''}`
@@ -746,9 +748,8 @@ document.addEventListener('click', (e) => {
   if (!b) return;
   const v = b.dataset.v;
   switch (b.dataset.act) {
-    case 'lang': setPref('lang', v); break;
-    case 'tu': setPref('tu', v); break;
-    case 'lu': setPref('lu', v); break;
+    // On a phone these three live in the settings dialog, which is redrawn in place.
+    case 'lang': case 'tu': case 'lu': setPref(b.dataset.act, v); if (b.closest('#dlg')) { t = makeT(S.lang); openSettings(); } break;
     case 'theme': { // one click always flips what is on screen; landing on the device's own scheme resumes following it
       const sysDark = matchMedia('(prefers-color-scheme: dark)').matches;
       const dark = S.theme === 'dark' || (S.theme === 'auto' && sysDark);

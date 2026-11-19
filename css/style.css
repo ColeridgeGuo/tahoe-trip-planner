@@ -208,8 +208,15 @@ footer{max-width:60rem;margin:auto;padding:0.25rem 1.25rem 1rem;font-size:0.7188
 }
 
 .icon svg{width:1rem;height:1rem;display:block}
-/* phone: header controls span the full row, evenly spaced */
-@media (max-width:719px){#toggles{width:100%;justify-content:space-between;flex-wrap:nowrap}}
+/* phone: only refresh and settings stay in the header, right of the title; language, units and theme move into the settings dialog */
+@media (max-width:719px){
+  .bar{flex-wrap:nowrap;align-items:flex-start}
+  #title{min-width:0}
+  #toggles{flex:none;flex-wrap:nowrap;gap:0.375rem}
+  #toggles .seg,#toggles [data-act=theme]{display:none}
+}
+.segs{display:flex;gap:0.375rem;flex-wrap:wrap}
+@media (min-width:720px){.phoneonly{display:none}}
 
 /* map */
 #map{height:24rem;border-radius:0.625rem;overflow:hidden;background:var(--soft);isolation:isolate;margin-top:0.5rem;font:inherit}
