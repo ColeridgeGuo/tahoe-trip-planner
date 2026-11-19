@@ -1,7 +1,8 @@
 // Change alerts: when a push notification is sent for the departure being watched (scripts/notify.mjs).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { planState, decide, summariesDue, watchdogNote } from '../scripts/notify.mjs';
+import { planState, decide, summariesDue, watchdogNote, quotaNote } from '../scripts/notify.mjs';
+import { quotaState } from '../js/logic.js';
 import { dest, H, MIN, NOW, AWD, makeData, fail, chainRow, closure, liveDrive } from './helpers.mjs';
 
 const plan = (over = {}) => ({ dest: dest.id, direction: 'out', departMs: NOW + 3 * H, setAt: NOW - 10 * MIN, ...over });
@@ -262,5 +263,34 @@ describe('snow and the drive time in a notification', () => {
     assert.match(m.body, /45–90/);
     assert.equal(m.told.snowMin, undefined); // not part of what is compared next time
     assert.doesNotMatch(say(undefined, cur({ drive: true, sec: 13320 })).body, /雪天/);
+  });
+});
+
+describe('TomTom allowance', () => {
+  const tt = (monthN, o = {}) => ({ day: '2026-12-20', n: 500, month: '2026-12', monthN, from: '2026-12-01', quota: 20000, ...o });
+  test('the level: fine below 80%, close from 80%, past it from 100%', () => {
+    assert.deepEqual([15999, 16000, 19999, 20000].map((n) => quotaState(tt(n)).lv), [0, 1, 1, 2]);
+    assert.equal(quotaState({ day: '2026-11-18', n: 5 }), null); // a file published before the month was counted
+    assert.equal(quotaState(null), null);
+  });
+  test('a count that began part-way through the month says from when; a whole month does not', () => {
+    assert.equal(quotaState(tt(180, { from: '2026-12-18' })).from, '2026-12-18');
+    assert.equal(quotaState(tt(180)).from, null);
+  });
+  test('nothing is sent below 80%', () => {
+    assert.equal(quotaNote(undefined, tt(15000), 'zh'), null);
+  });
+  test('said once at 80% and once more at 100%, then again the next month', () => {
+    const a = quotaNote(undefined, tt(16100), 'zh');
+    assert.ok(a.body.includes('16,100') && a.body.includes('20,000') && a.body.includes('80%'));
+    assert.deepEqual(a.told, { month: '2026-12', lv: 1 });
+    assert.equal(quotaNote(a.told, tt(17000), 'zh'), null);
+    const b = quotaNote(a.told, tt(20010), 'zh');
+    assert.deepEqual(b.told, { month: '2026-12', lv: 2 });
+    assert.equal(quotaNote(b.told, tt(21000), 'zh'), null);
+    assert.ok(quotaNote(b.told, tt(16500, { month: '2027-01' }), 'zh'));
+  });
+  test('both languages fill every placeholder', () => {
+    for (const lang of ['zh', 'en']) for (const n of [16100, 20010]) { const m = quotaNote(undefined, tt(n), lang); assert.ok(!/undefined|\{\w+\}/.test(m.title + m.body), m.body); }
   });
 });

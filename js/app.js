@@ -212,6 +212,16 @@ function renderChrome() {
   off.hidden = !(S.offline && S.data);
   if (!off.hidden) off.textContent = t('offline', { when: fWhen(S.data.generatedAt), ago: fAgo(S.data.generatedAt) });
   $('#foot').textContent = t('srcs');
+  // TomTom requests used this month, as counted by the fetch script. Close to the allowance it also shows
+  // as a banner, which can be put away for that month and level on this device.
+  const q = S.data && L.quotaState(S.data.tomtom);
+  const qv = q && { n: q.n.toLocaleString('en-US'), q: q.quota.toLocaleString('en-US'), p: Math.floor(q.pct * 100) };
+  $('#quota').textContent = q ? [t('quota.used', qv), q.from ? t('quota.from', { d: `${+q.from.slice(5, 7)}/${+q.from.slice(8)}` }) : '', t('quota.ref')].filter(Boolean).join(' · ') : '';
+  $('#quota').className = q?.lv === 2 ? 'over' : q?.lv === 1 ? 'warn' : '';
+  const qw = $('#quotawarn');
+  qw.hidden = !(q?.lv && store.get('quotaSeen', '') !== `${q.month}:${q.lv}`);
+  qw.className = q?.lv === 2 ? 'over' : '';
+  if (!qw.hidden) qw.innerHTML = `<span>${t(q.lv === 2 ? 'al.qOver' : 'al.qWarn', qv)}${t('al.qRef')}</span><button data-act="quotaSeen" data-v="${q.month}:${q.lv}">${t('quota.hide')}</button>`;
 }
 
 function render() {
@@ -746,6 +756,7 @@ document.addEventListener('click', (e) => {
     case 'wk': { const [dir, day, h] = v.split('|'); setPref('direction', dir); S.depart = { day, h: +h }; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
     case 'hour': S.depart = { day: S.depart === 'now' ? L.dayKey(Date.now()) : S.depart.day, h: +v }; break;
     case 'wx': S.wxPoint = v; break;
+    case 'quotaSeen': store.set('quotaSeen', b.dataset.v); renderChrome(); return;
     case 'refresh': b.classList.add('spin'); loadData(); if (list.hasToken()) list.sync(); return;
     case 'settings': t = makeT(S.lang); return openSettings();
     case 'cam': return openCam(+v);
