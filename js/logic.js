@@ -690,6 +690,27 @@ export function foodStops(data, dest, places, departMs, direction, hours = dest.
   }).sort((x, y) => x.at - y.at);
 }
 
+// ---------- chain control over the last two days ----------
+// From the hourly record the fetch script keeps for each destination (historyFile(): `e` / `w` are the
+// strictest level seen in each hour on the way out / back, which is eastbound / westbound on every route's
+// main highway; null when the feed failed). `direction` is 'out' or 'back'. Returns one cell per hour for the last `n`
+// hours, oldest first, `level` null where there is no reading (never taken for "no chain control"), and
+// `since`: the hour the level of the latest reading began; `open` when it has held for the whole window, and
+// `fromStart` when it has held for as long as there is a record, which is shorter than the window.
+export const historyFile = (dest, first) => (dest === first ? 'history' : `history-${dest.id}`);
+export function chainPast(hist, direction, nowMs = Date.now(), n = 48) {
+  const key = direction === 'out' ? 'e' : 'w';
+  const byT = new Map((hist?.rows || []).map((r) => [r.t, r[key] ?? null]));
+  const end = Math.floor(nowMs / 36e5) * 36e5;
+  const cells = Array.from({ length: n }, (_, i) => { const t = end - (n - 1 - i) * 36e5; return { t, day: dayKey(t), h: hourOf(t), level: byT.has(t) ? byT.get(t) : null }; });
+  const known = cells.filter((c) => c.level != null);
+  const last = known.at(-1);
+  if (!last) return { cells, since: null };
+  let first = last;
+  for (let i = cells.indexOf(last) - 1; i >= 0 && (cells[i].level == null || cells[i].level === last.level); i--) if (cells[i].level != null) first = cells[i];
+  return { cells, since: { level: last.level, t: first.t, hours: Math.round((end - first.t) / 36e5) + 1, open: first === cells[0], fromStart: first === known[0] && first !== cells[0] } };
+}
+
 // ---------- TomTom allowance ----------
 // How much of the month's free TomTom requests is used, from the count the fetch script publishes
 // (`data.tomtom`). lv 1: close to the allowance, lv 2: past it. `from` is set only when the count began

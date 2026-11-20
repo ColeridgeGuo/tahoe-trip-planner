@@ -244,6 +244,7 @@ const CARD_IC = {
   hourly: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
   map: '<path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z"/><path d="M8 2v16M16 6v16"/>',
   chain: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  past: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l-4 2"/>',
   inc: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/>',
   clos: '<circle cx="12" cy="12" r="10"/><path d="M4.93 4.93l14.14 14.14"/>',
   alts: '<path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>',
@@ -610,6 +611,36 @@ function viewWeather() {
 }
 
 // ----- roads -----
+// The hourly record of real chain control (data/history.json), read when the card that shows it is open.
+// One file per destination; a destination whose record has not started yet has none (404) and shows "no data".
+const HIST = { id: null, data: null, at: 0, loading: null };
+function loadHistory() {
+  const id = S.destId;
+  if (HIST.id !== id) Object.assign(HIST, { id, data: null, at: 0, loading: null });
+  if (HIST.loading || Date.now() - HIST.at < 10 * 6e4) return;
+  const done = (j) => { if (HIST.id !== id) return; HIST.data = j; HIST.at = Date.now(); HIST.loading = null; if (S.tab === 'roads' && S.data) softRender(); };
+  HIST.loading = fetch(`data/${L.historyFile(dest(), DESTINATIONS[0])}.json?ts=${Math.floor(Date.now() / 6e4)}`, { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : r.status === 404 ? { rows: [] } : Promise.reject(new Error(r.status))))
+    .then(done, (e) => { console.warn('history', e); if (HIST.id === id) { HIST.loading = null; HIST.at = Date.now() - 9 * 6e4; if (!HIST.data) done({ rows: [] }); } });
+}
+const chainWord = (lv) => (lv >= 4 ? t('pastClosed') : lv > 0 ? `R${lv}` : t('mapNone'));
+function pastHtml() {
+  loadHistory(); // and again once it is ten minutes old
+  if (!HIST.data) return `<p class="muted">${t('loading')}</p>`;
+  const p = L.chainPast(HIST.data, S.direction);
+  if (!p.since) return `<p class="muted">${t('noData')}</p>`;
+  const cls = (lv) => (lv == null ? 'na' : lv >= 3 ? 'nogo' : lv > 0 ? 'caution' : 'ok');
+  const bars = p.cells.map((c) => {
+    const tip = `${fDay(c.day)} ${fHour(c.h)} · ${c.level == null ? t('noData') : chainWord(c.level)}`;
+    return `<span class="${cls(c.level)}${c.h === 0 ? ' newday' : ''}" title="${tip}" aria-label="${tip}"><i style="height:${c.level == null ? 100 : [22, 60, 100, 100, 100][c.level]}%"></i></span>`;
+  }).join('');
+  const ticks = p.cells.map((c) => `<span>${c.h % 6 === 0 ? fHour(c.h) : ''}</span>`).join('');
+  const days = p.cells.map((c, i) => `<span>${c.h === 0 || i === 0 ? fDay(c.day) : ''}</span>`).join('');
+  const s = p.since;
+  const sum = s.open ? t('pastAll', { lv: chainWord(s.level) }) : s.fromStart ? t('pastFrom', { lv: chainWord(s.level), when: fWhen(s.t) }) : t(s.level > 0 ? 'pastSince' : 'pastClear', { lv: chainWord(s.level), when: fWhen(s.t), n: s.hours });
+  return `<p class="pastsum"><b>${sum}</b></p><div class="past"><div class="pastrow days" aria-hidden="true">${days}</div><div class="pastrow bars" role="img" aria-label="${sum}">${bars}</div><div class="pastrow ticks" aria-hidden="true">${ticks}</div></div>
+    <div class="legend"><span><i class="lg ok"></i>${t('mapNone')}</span><span><i class="lg caution"></i>R1 / R2</span><span><i class="lg nogo"></i>${t('mapClosed')}</span><span><i class="lg na"></i>${t('noData')}</span></div><p class="note">${t('pastNote')}</p>`;
+}
 const rBadge = (lv, status) => `<span class="badge ${lv <= 0 ? (lv < 0 ? 'na' : 'ok') : lv >= 3 ? 'nogo' : 'caution'}">${lv === 4 ? 'CLOSED' : lv < 0 ? esc(status || '?') : 'R' + lv}</span>`;
 function viewRoads() {
   const d = dest();
@@ -673,7 +704,7 @@ function viewRoads() {
   const st = (k) => { const s = S.data.status[k]; return s?.ok === false ? `<span class="tag bad">${s.dataAt ? t('srcStaleTag', { v: fAgo(s.dataAt) }) : t('loadFail')}</span>` : ''; };
   // The map as the overview, then by how much each one can change the trip: what can stop you, the ways round, the nice-to-haves.
   return dirSeg + card('map', `${r.label} ${t('mapTitle')}`, mapHtml) +
-    card('chain', `${roads.map((k) => k.label).join(' + ')} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? liveTag(S.chainLiveAt) : fAgo(S.data.generatedAt)}</span>${st('chain')}`) + card('inc', t('incTitle'), inc, st('incidents')) + card('clos', t('closTitle'), clos, st('closures')) +
+    card('chain', `${roads.map((k) => k.label).join(' + ')} ${t('chainTitle')}`, chain, `<span class="tag">${S.chainLiveAt ? liveTag(S.chainLiveAt) : fAgo(S.data.generatedAt)}</span>${st('chain')}`) + card('past', `${roads.map((k) => k.label).join(' + ')} ${roads.length > 1 ? t(S.direction) : dirLabel} · ${t('pastTitle')}`, folded.has('past') ? '' : pastHtml()) + card('inc', t('incTitle'), inc, st('incidents')) + card('clos', t('closTitle'), clos, st('closures')) +
     card('alts', t('altTitle'), alts) + card('cams', t('camTitle'), cams, st('cams')) + foodCard + `<p class="note pad0">${t('srcTextNote')} · ${t('chainDir', { dir: dirLabel })}</p>`;
 }
 
