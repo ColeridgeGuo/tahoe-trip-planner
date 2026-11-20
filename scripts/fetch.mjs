@@ -4,7 +4,7 @@ import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { DESTINATIONS } from '../js/config.js';
 import { CC_URL, normalizeChain, incidentDir } from '../js/normalize.js';
 import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes, pastSnow, addHistory, quotaUsed, dedupe, dedupeIncidents, streamUrl, liveStreams, incidentRoad, MONTHLY_QUOTA, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours, snotelStations, SNOTEL_EVERY_MS } from './lib.mjs';
-import { chainFor, roadsOf, isDetour } from '../js/logic.js';
+import { chainFor, chainOn, roadsOf, isDetour, historyFile } from '../js/logic.js';
 
 const UA = 'tahoe-trip-planner (personal trip dashboard, github pages)';
 const pad = (d) => String(d).padStart(2, '0');
@@ -412,6 +412,13 @@ for (const dest of DESTINATIONS) {
     const live = dr && status.drive.ok && dr.at >= t0 ? { d: [real(dr.out) ? dr.out.sec : null, real(dr.back) ? dr.back.sec : null], m: [real(dr.out) ? mtnMin(dr.out, true) : null, real(dr.back) ? mtnMin(dr.back, false) : null] } : {};
     history = addHistory(history, { t: t0, e: lv(dest.route.outboundDir), w: lv(dest.route.returnDir), s: now0('snow'), c: now0('temp'), ...live, ...(obs && status.snotel.ok ? { sd: obs.stations.map((x) => x.depth) } : {}) }, mtn);
     await writeFile(new URL('../data/history.json', import.meta.url), JSON.stringify(history));
+  }
+  // The other destinations keep only the chain level of each hour, on every road of the trip (I-80 and CA-267
+  // for Northstar), for the page's "last 48 hours" card.
+  else {
+    const name = historyFile(dest, DESTINATIONS[0]);
+    const lv = (direction) => { const m = status.chain.ok ? chainOn(out, dest.route, direction).max : -1; return m < 0 ? null : m; };
+    await writeFile(new URL(`../data/${name}.json`, import.meta.url), JSON.stringify(addHistory(await published(name), { t: t0, e: lv('out'), w: lv('back') }, [])));
   }
   await writeFile(new URL(`../data/${dest.id}.json`, import.meta.url), JSON.stringify(out));
   console.log(dest.id, Object.entries(status).map(([k, v]) => `${k}:${v.ok ? 'ok' : 'FAIL'}`).join(' '),

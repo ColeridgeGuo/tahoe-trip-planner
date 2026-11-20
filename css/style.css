@@ -292,3 +292,16 @@ select{appearance:none;-webkit-appearance:none;cursor:pointer;padding-right:1.87
 .hero{position:relative}.hero .route{padding-right:5.5rem}
 .hero .share{position:absolute;z-index:1;top:0.75rem;right:0.75rem;display:inline-flex;align-items:center;gap:0.375rem;border:0;border-radius:0.5625rem;background:rgba(255,255,255,.18);color:inherit;font-size:0.8125rem;padding:0.375rem 0.625rem;cursor:pointer}
 .hero .share:hover{background:rgba(255,255,255,.28)}.share svg{width:0.875rem;height:0.875rem}
+
+/* Chain control over the last 48 hours: one bar an hour, height by level. */
+.pastsum{margin:0 0 0.5rem;font-size:0.9375rem}
+.pastrow{display:grid;grid-template-columns:repeat(48,1fr);gap:1px}
+.pastrow.bars{height:2.5rem;align-items:end;border-bottom:1px solid var(--line)}
+.pastrow.bars span{height:100%;display:flex;align-items:flex-end;min-width:0}
+.pastrow.bars i{display:block;width:100%;border-radius:2px 2px 0 0;background:var(--line)}
+.pastrow.bars .ok i{background:var(--ok)}.pastrow.bars .caution i{background:var(--caution)}.pastrow.bars .nogo i{background:var(--nogo)}
+.pastrow.bars .na i{background:repeating-linear-gradient(135deg,var(--line) 0 2px,transparent 2px 4px)}
+.pastrow.bars .newday{box-shadow:-1px 0 0 var(--mute)}
+.pastrow.days span,.pastrow.ticks span{font-size:0.625rem;color:var(--mute);white-space:nowrap;overflow:visible;height:0.875rem}
+.pastrow.days span{font-weight:600;color:var(--ink)}
+.lg.na{background:repeating-linear-gradient(135deg,var(--line) 0 2px,transparent 2px 4px)}

@@ -2,6 +2,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import * as L from '../js/logic.js';
+import { DESTINATIONS as DESTS } from '../js/config.js';
 import { dest, route, H, MIN, T0, NOW, AWD, timed, stopIdx, hourIdx, makeData, fail, factor, chainRow, chains, closure, incident, liveDrive } from './helpers.mjs';
 
 const ev = (data, over = {}) => L.evaluate(data, dest, { departMs: NOW, direction: 'out', vehicle: AWD, nowMs: NOW, ...over });
@@ -704,5 +705,43 @@ describe('daily figures say which hours they cover', () => {
     const days = L.daily(d, L.index(d), 'summit');
     assert.deepEqual([days[0].h0, days[0].h1], [21, 23]);
     assert.deepEqual([days[1].h0, days[1].h1], [0, 23]);
+  });
+});
+
+describe('chain control over the last 48 hours', () => {
+  const end = Math.floor(NOW / H) * H;
+  const rows = (levels) => levels.map((lv, i) => ({ t: end - (levels.length - 1 - i) * H, e: lv, w: lv == null ? null : 0 }));
+  test('one cell per hour, oldest first, ending at the current hour', () => {
+    const p = L.chainPast({ rows: rows([0, 0, 2, 2, 2]) }, 'out', NOW);
+    assert.equal(p.cells.length, 48);
+    assert.equal(p.cells.at(-1).t, end);
+    assert.deepEqual(p.cells.slice(-5).map((c) => c.level), [0, 0, 2, 2, 2]);
+    assert.equal(p.cells[0].level, null); // before the record begins: unknown, not "no chain control"
+    assert.deepEqual(p.since, { level: 2, t: end - 2 * H, hours: 2, open: false, fromStart: false });
+  });
+  test('the way back reads its own column', () => {
+    assert.equal(L.chainPast({ rows: rows([2, 2]) }, 'back', NOW).since.level, 0);
+  });
+  test('an hour without a reading does not break a run, and is not counted as its start', () => {
+    const p = L.chainPast({ rows: rows([0, 2, null, 2]) }, 'out', NOW);
+    assert.equal(p.cells.at(-2).level, null);
+    assert.deepEqual([p.since.t, p.since.hours], [end - 2 * H, 2]);
+    assert.equal(L.chainPast({ rows: rows([0, 2]) }, 'out', end + MIN).since.hours, 1); // just begun: not 0
+    assert.equal(L.chainPast({ rows: rows([0, 2, 2]) }, 'out', end + 40 * MIN).since.hours, 2); // 1 h 40 min
+    const gap = L.chainPast({ rows: rows([2, 2]).filter((_, i) => i === 1).concat({ t: end - 5 * H, e: 2, w: 0 }) }, 'out', NOW);
+    assert.equal(gap.cells.at(-3).level, null); // a missing row
+    assert.equal(gap.since.t, end - 5 * H);
+  });
+  test('the same level for the whole record says so; an empty record has nothing to say', () => {
+    assert.equal(L.chainPast({ rows: rows(new Array(60).fill(1)) }, 'out', NOW).since.open, true);
+    const short = L.chainPast({ rows: rows([2, 2]) }, 'out', NOW).since; // a record younger than the window
+    assert.deepEqual([short.open, short.fromStart], [false, true]);
+    assert.equal(L.chainPast({ rows: [] }, 'out', NOW).since, null);
+    assert.equal(L.chainPast(null, 'out', NOW).since, null);
+    assert.equal(L.chainPast({ rows: rows([null, null]) }, 'out', NOW).since, null);
+  });
+  test('each destination has its own record file', () => {
+    assert.equal(L.historyFile(DESTS[0], DESTS[0]), 'history');
+    assert.equal(L.historyFile(DESTS[2], DESTS[0]), 'history-northstar');
   });
 });
