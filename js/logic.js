@@ -695,7 +695,7 @@ export function foodStops(data, dest, places, departMs, direction, hours = dest.
 // strictest level seen in each hour on the way out / back, which is eastbound / westbound on every route's
 // main highway; null when the feed failed). `direction` is 'out' or 'back'. Returns one cell per hour for the last `n`
 // hours, oldest first, `level` null where there is no reading (never taken for "no chain control"), and
-// `since`: the hour the level of the latest reading began; `open` when it has held for the whole window, and
+// `since`: the hour the level of the latest reading began and the whole hours since then (at least 1); `open` when it has held for the whole window, and
 // `fromStart` when it has held for as long as there is a record, which is shorter than the window.
 export const historyFile = (dest, first) => (dest === first ? 'history' : `history-${dest.id}`);
 export function chainPast(hist, direction, nowMs = Date.now(), n = 48) {
@@ -708,7 +708,7 @@ export function chainPast(hist, direction, nowMs = Date.now(), n = 48) {
   if (!last) return { cells, since: null };
   let first = last;
   for (let i = cells.indexOf(last) - 1; i >= 0 && (cells[i].level == null || cells[i].level === last.level); i--) if (cells[i].level != null) first = cells[i];
-  return { cells, since: { level: last.level, t: first.t, hours: Math.round((end - first.t) / 36e5) + 1, open: first === cells[0], fromStart: first === known[0] && first !== cells[0] } };
+  return { cells, since: { level: last.level, t: first.t, hours: Math.max(1, Math.round((nowMs - first.t) / 36e5)), open: first === cells[0], fromStart: first === known[0] && first !== cells[0] } };
 }
 
 // ---------- TomTom allowance ----------

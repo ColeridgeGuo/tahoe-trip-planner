@@ -717,7 +717,7 @@ describe('chain control over the last 48 hours', () => {
     assert.equal(p.cells.at(-1).t, end);
     assert.deepEqual(p.cells.slice(-5).map((c) => c.level), [0, 0, 2, 2, 2]);
     assert.equal(p.cells[0].level, null); // before the record begins: unknown, not "no chain control"
-    assert.deepEqual(p.since, { level: 2, t: end - 2 * H, hours: 3, open: false, fromStart: false });
+    assert.deepEqual(p.since, { level: 2, t: end - 2 * H, hours: 2, open: false, fromStart: false });
   });
   test('the way back reads its own column', () => {
     assert.equal(L.chainPast({ rows: rows([2, 2]) }, 'back', NOW).since.level, 0);
@@ -725,7 +725,9 @@ describe('chain control over the last 48 hours', () => {
   test('an hour without a reading does not break a run, and is not counted as its start', () => {
     const p = L.chainPast({ rows: rows([0, 2, null, 2]) }, 'out', NOW);
     assert.equal(p.cells.at(-2).level, null);
-    assert.deepEqual([p.since.t, p.since.hours], [end - 2 * H, 3]);
+    assert.deepEqual([p.since.t, p.since.hours], [end - 2 * H, 2]);
+    assert.equal(L.chainPast({ rows: rows([0, 2]) }, 'out', end + MIN).since.hours, 1); // just begun: not 0
+    assert.equal(L.chainPast({ rows: rows([0, 2, 2]) }, 'out', end + 40 * MIN).since.hours, 2); // 1 h 40 min
     const gap = L.chainPast({ rows: rows([2, 2]).filter((_, i) => i === 1).concat({ t: end - 5 * H, e: 2, w: 0 }) }, 'out', NOW);
     assert.equal(gap.cells.at(-3).level, null); // a missing row
     assert.equal(gap.since.t, end - 5 * H);
