@@ -1049,8 +1049,13 @@ function openView(url) {
   if (moved) { destroyMap(); S.destId = v.destId; S.data = null; S.ix = null; S.chainLiveAt = null; S.camsLoaded.clear(); }
   if (v.direction) S.direction = v.direction;
   S.shareGone = false;
-  if (v.depart) { S.depart = v.depart; sharedCheck = true; if (S.ix) checkShared(); }
+  // The forecast on hand may be an old one (the page was asleep) that does not reach the hour asked for yet:
+  // the departure is settled here only when that forecast has the hour, otherwise by the load started below.
+  if (v.depart) { S.depart = v.depart; sharedCheck = true; if (S.ix?.hours.some((x) => x.day === v.depart.day && x.h === v.depart.h)) checkShared(); }
   S.tab = 'verdict';
+  // The tabs are links to #name and follow hashchange: keep the address on the tab now shown, or the tab
+  // that was open before could not be reached again with one tap.
+  try { history.replaceState(null, '', location.pathname + '#verdict'); } catch { /* keep the address as it is */ }
   render();
   window.scrollTo(0, 0);
   loadData();
