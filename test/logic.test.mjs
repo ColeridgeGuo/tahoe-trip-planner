@@ -745,3 +745,31 @@ describe('chain control over the last 48 hours', () => {
     assert.equal(L.historyFile(DESTS[2], DESTS[0]), 'history-northstar');
   });
 });
+
+describe('daylight', () => {
+  const pass = route.points.find((p) => p.id === 'pass');
+  const pt = (s) => Date.parse(s);
+  test('sunrise and sunset at Echo Summit match the almanac to a few minutes', () => {
+    const near = (ms, want) => assert.ok(Math.abs(ms - pt(want)) <= 4 * MIN, `${new Date(ms).toISOString()} vs ${want}`);
+    const nov = L.sunTimes(pass.lat, pass.lon, pt('2026-11-19T12:00:00-08:00'));
+    near(nov.rise, '2026-11-19T06:48:00-08:00');
+    near(nov.set, '2026-11-19T16:43:00-08:00');
+    const jun = L.sunTimes(pass.lat, pass.lon, pt('2026-06-21T12:00:00-07:00'));
+    near(jun.rise, '2026-06-21T05:36:00-07:00');
+    near(jun.set, '2026-06-21T20:29:00-07:00');
+  });
+  test('a drive that crosses the mountain after sunset or before sunrise says so; in daylight it does not', () => {
+    const at = (s) => L.daylight(L.alongRoute(makeData(), dest, pt(s), 'out'), route);
+    const day = at('2026-01-13T08:00:00-08:00'); // on the mountain 11:00-11:45
+    assert.equal(day.dark.length, 0);
+    assert.equal(L.hourOf(day.set), 17); // 17:01
+    const eve = at('2026-01-13T14:30:00-08:00'); // Kyburz 17:30, after the 17:01 sunset
+    assert.equal(eve.dark[0].point.id, 'kyburz');
+    assert.equal(eve.before, false);
+    const early = at('2026-01-13T03:00:00-08:00'); // on the mountain 6:00-6:45, sunrise after 7
+    assert.equal(early.dark.length, 3);
+    assert.equal(early.before, true);
+    const part = at('2026-01-13T13:30:00-08:00'); // Kyburz 16:30 and the pass 16:54 in daylight, the town 17:15 after sunset
+    assert.deepEqual(part.dark.map((s) => s.point.id), ['town']);
+  });
+});
