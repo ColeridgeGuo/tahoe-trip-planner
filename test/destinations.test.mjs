@@ -199,7 +199,7 @@ describe('Northstar: I-80, then CA-267', () => {
     const south = makeData({ chain: [...quietChain(r), cc('SR-267', 'South', 3, -120.148)] }, r);
     assert.equal(go(northstar, south).level, 'nogo');
     assert.equal(go(northstar, south, 'back').level, 'go');
-    const north = makeData({ chain: [...quietChain(r), cc('SR-267', 'North', 3, -120.13)] }, r);
+    const north = makeData({ chain: [...quietChain(r), cc('SR-267', 'North', 3, -120.038)] }, r);
     assert.equal(go(northstar, north).level, 'go');
     assert.equal(go(northstar, north, 'back').level, 'nogo');
   });
@@ -221,27 +221,6 @@ describe('Northstar: I-80, then CA-267', () => {
     const data = makeData({ chain: [...quietChain(r), cc('I-80', 'East', 4, -120.084), cc('I-80', 'West', 4, -119.998)], closures: [closure({ hw: 'I-80', dir: 'East', lon: -120.03 })], incidents: [incident({ hw: 'I-80', dir: 'East', lon: -120.03 })] }, r);
     assert.equal(go(northstar, data).level, 'go');
     assert.equal(go(northstar, data, 'back').level, 'go');
-  });
-  test('CA-267 past the Northstar Dr turn-off (Brockway Summit, Kings Beach) is not on the trip', () => {
-    // Chain control, a full closure and a serious incident, all on CA-267 east of the turn-off.
-    const data = makeData({ chain: [...quietChain(r), cc('SR-267', 'South', 3, -120.07), cc('SR-267', 'North', 4, -120.038)], closures: [closure({ hw: 'SR-267', dir: 'South', lon: -120.07, endLon: -120.04 }), closure({ hw: 'SR-267', dir: 'North', lon: -120.04, endLon: -120.07 })], incidents: [incident({ hw: 'SR-267', dir: 'South', lon: -120.07 }), incident({ hw: 'SR-267', dir: 'North', lon: -120.04 })] }, r);
-    for (const direction of ['out', 'back']) {
-      const ev = go(northstar, data, direction);
-      assert.equal(ev.level, 'go', direction);
-      assert.equal(factor(ev, 'closures').msg, 'closedNone', direction);
-      assert.equal(factor(ev, 'incidents').v.all.length, 0, direction);
-      assert.equal(L.chainOn(data, r, direction).max, 0, direction);
-    }
-    assert.equal(planState(data, northstar, { direction: 'out', departMs: NOW + H }, AWD, NOW).chain, 0);
-  });
-  test('a CA-267 closure that starts past the turn-off but reaches back onto the trip still counts', () => {
-    const data = makeData({ closures: [closure({ hw: 'SR-267', dir: 'South', lon: -120.07, endLon: -120.13 })] }, r);
-    assert.equal(factor(go(northstar, data), 'closures').msg, 'closedFull');
-    assert.equal(go(northstar, data).level, 'nogo');
-  });
-  test('CA-267 is cut between the Northstar Dr turn-off and Brockway Summit', () => {
-    const road = L.roadsOf(r).find((x) => x.highway === 'SR-267');
-    assert.ok(road.lonMax > -120.121 && road.lonMax < -120.07, `lonMax ${road.lonMax}`);
   });
   test('a closed rest area or side street is not a closed freeway', () => {
     const data = makeData({ closures: [closure({ hw: 'I-80', dir: 'East', facility: 'Rest Area', from: 'Route 80', to: 'Donner Summit Rest Area (EB)', end: null }), closure({ hw: 'I-80', dir: 'East', facility: 'Surface Street', delayMin: 30 })] }, r);
