@@ -1,7 +1,7 @@
 // Change alerts: when a push notification is sent for the departure being watched (scripts/notify.mjs).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { planState, decide, summariesDue, watchdogNote, quotaNote } from '../scripts/notify.mjs';
+import { planState, decide, summariesDue, watchdogNote, quotaNote, watched } from '../scripts/notify.mjs';
 import { quotaState } from '../js/logic.js';
 import { dest, H, MIN, NOW, AWD, makeData, fail, chainRow, closure, liveDrive } from './helpers.mjs';
 
@@ -333,5 +333,18 @@ describe('the deadline for the drive home', () => {
   });
   test('both languages fill every placeholder', () => {
     for (const lang of ['zh', 'en']) for (const late of [14, -1, undefined]) { const m = say(told({ late: 9 }), cur({ late }), back(), lang); assert.ok(!/undefined|\{\w+\}/.test(m.body), m.body); }
+  });
+});
+
+describe('which departures are watched', () => {
+  test('one per resort and direction, and plans from an older page still count', () => {
+    const plans = watched({ plans: {
+      'heavenly:out': { dest: 'heavenly', direction: 'out', departMs: NOW + H },
+      'kirkwood:out': { dest: 'kirkwood', direction: 'out', departMs: NOW + 2 * H },
+      back: { dest: 'heavenly', departMs: NOW + 3 * H }, // older page: keyed by the bare direction
+      'kirkwood:back': { dest: 'kirkwood', direction: 'back', departMs: NOW - H }, // already left
+    } }, NOW);
+    assert.deepEqual(plans.map((p) => `${p.dest}:${p.direction}`), ['heavenly:out', 'kirkwood:out', 'heavenly:back']);
+    assert.deepEqual(watched(null, NOW), []);
   });
 });

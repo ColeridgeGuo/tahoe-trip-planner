@@ -482,12 +482,12 @@ function viewVerdict() {
   </div>${S.shareGone ? `<p class="note">${t('shareGone')}</p>` : ''}`;
 
   // Change alert for this direction: the one that is on, and a button to watch the hour picked on the strip.
-  const plan = alerts.plan(S.direction);
+  const plan = alerts.plan(d.id, S.direction);
   const sel = pickedHour();
   const busy = alerts.status() === 'busy';
   const alertRow = plan || sel ? `<div class="alertrow">
-    ${plan ? `<span class="tag ok">${plan.dest && plan.dest !== d.id ? esc(nm((DESTINATIONS.find((x) => x.id === plan.dest) || d).name)) + ' · ' : ''}${t('al.on', { when: fWhen(plan.departMs) })}</span><button class="ghost" data-act="alertOff" ${busy ? 'disabled' : ''}>${t('al.off')}</button>` : ''}
-    ${sel && (plan?.departMs !== sel.ms || (plan.dest && plan.dest !== d.id)) ? `<button class="ghost" data-act="alertOn" ${busy ? 'disabled' : ''}>${t(plan ? 'al.move' : 'al.remind')}</button>` : ''}
+    ${plan ? `<span class="tag ok">${t('al.on', { when: fWhen(plan.departMs) })}</span><button class="ghost" data-act="alertOff" ${busy ? 'disabled' : ''}>${t('al.off')}</button>` : ''}
+    ${sel && plan?.departMs !== sel.ms ? `<button class="ghost" data-act="alertOn" ${busy ? 'disabled' : ''}>${t(plan ? 'al.move' : 'al.remind')}</button>` : ''}
     ${busy ? `<span class="muted">${t('al.saving')}</span>` : S.alertErr ? `<span class="tag bad">${t('al.failed')}</span>` : ''}</div>` : '';
 
   const hero = `<section class="hero ${ev.level}">
@@ -934,10 +934,10 @@ document.addEventListener('click', (e) => {
       if (!h) break;
       if (alerts.blocker() !== 'ok') return openSettings();
       S.alertErr = false;
-      alerts.set(S.direction, { dest: S.destId, departMs: h.ms }, { lang: S.lang, vehicle: S.vehicle }).catch(() => { S.alertErr = true; }).finally(() => { if (alerts.blocker() !== 'ok') openSettings(); render(); });
+      alerts.set(S.destId, S.direction, { departMs: h.ms }, { lang: S.lang, vehicle: S.vehicle }).catch(() => { S.alertErr = true; }).finally(() => { if (alerts.blocker() !== 'ok') openSettings(); render(); });
       return;
     }
-    case 'alertOff': S.alertErr = false; alerts.clear(S.direction).catch(() => { S.alertErr = true; }).finally(render); return;
+    case 'alertOff': S.alertErr = false; alerts.clear(S.destId, S.direction).catch(() => { S.alertErr = true; }).finally(render); return;
     case 'alertTest': alerts.test(t('al.testTitle'), t('al.testBody')).catch(() => openSettings()); return;
     case 'alertCopy': navigator.clipboard?.writeText($('#gistId').value).then(() => { b.textContent = t('al.copied'); }); $('#gistId').select(); return;
     default: return;
