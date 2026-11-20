@@ -119,6 +119,9 @@ export const SNOTEL_EVERY_MS = 50 * 6e4; // the stations report once an hour
 //            traffic and are fetched again every hour; later hours come from TomTom's
 //            historic profiles and are fetched again only when MID_EVERY_MS old. An
 //            hour is fetched 5 times before it passes, both ways                      240
+//            A later hour that came back as a detour (isDetour in ../js/logic.js) is
+//            fetched again once DETOUR_EVERY_MS old: a few requests on a storm day, at
+//            most 21 hours x 2 ways x 8 times = 336 if the road stays shut all day
 //   long     hours 24-192, every 2 h, once a day: 85 x 2                              170
 //                                                                                     506
 // About 15,700 in a 31-day month, which leaves a fifth of the allowance for retries and extra runs.
@@ -126,6 +129,7 @@ export const MONTHLY_QUOTA = 20000;
 export const LIVE_EVERY_MS = 25 * 6e4;
 export const NEAR_H = 3;
 export const MID_EVERY_MS = 12 * 36e5 - 5 * 6e4;
+export const DETOUR_EVERY_MS = 3 * 36e5 - 5 * 6e4;
 export const HOURLY_EVERY_MS = 55 * 6e4;
 export const LONG_EVERY_MS = 24 * 36e5 - 5 * 6e4;
 export const LONG_STEP_H = 2;
@@ -136,13 +140,14 @@ export function keptLive(prev, nowMs) {
 }
 // For an hourly refresh starting at hour `h0`: the points of the last forecast that can be kept, by time.
 // Every hour not in the result has to be fetched. `prevAt` dates points saved before each carried its own time.
-export function keptHours(prev, prevAt, h0, nowMs) {
+// `detour` tells a point that is TomTom routing round a closure it expected: those are kept for less long.
+export function keptHours(prev, prevAt, h0, nowMs, detour = () => false) {
   const kept = new Map();
   const back = new Map((prev?.back || []).map((x) => [x.ms, x]));
   for (const out of prev?.out || []) {
     const b = back.get(out.ms);
     if (!b || !out.stops || !b.stops || out.ms < h0 + NEAR_H * 36e5) continue;
-    if (nowMs - Math.min(out.at ?? prevAt ?? 0, b.at ?? prevAt ?? 0) >= MID_EVERY_MS) continue;
+    if (nowMs - Math.min(out.at ?? prevAt ?? 0, b.at ?? prevAt ?? 0) >= (detour(out) || detour(b) ? DETOUR_EVERY_MS : MID_EVERY_MS)) continue;
     kept.set(out.ms, { out, back: b });
   }
   return kept;

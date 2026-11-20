@@ -76,6 +76,12 @@ export function mapsUrl(dest, direction) {
 // TomTom), it is passed on so alongRoute() can use the real pass-through times.
 // How long the drive takes for a given departure: live TomTom time if leaving about now, otherwise the
 // forecast (hourly for the next day, then a coarser grid out to 7 days), otherwise the route's fixed estimate.
+// A forecast that is not a drive time: TomTom expected the mountain road to be shut at that hour (a hold during
+// a storm, say) and went round, hours longer even without traffic, doubling back to pass the route's waypoints.
+// Such a point says nothing about how long the drive takes once the road is open, and it is usually gone the
+// next time TomTom is asked. The page leaves it out and the fetch asks again sooner (keptHours in scripts/lib.mjs).
+export const DETOUR_X = 1.6;
+export const isDetour = (x, route) => x?.noTrafficSec > route.driveHours * 3600 * DETOUR_X;
 const DRIVE_GAP_MS = 3 * 36e5; // widest gap between two forecast points that is still interpolated across
 export function driveTime(data, dest, departMs, direction, nowMs = Date.now()) {
   const fixed = { hours: dest.route.driveHours, src: 'fixed' };
@@ -88,7 +94,7 @@ export function driveTime(data, dest, departMs, direction, nowMs = Date.now()) {
   }
   const near = d.hourly?.[direction] || [];
   const nearEnd = near.length ? near[near.length - 1].ms : -Infinity;
-  const h = [...near, ...(d.long?.[direction] || []).filter((x) => x.ms > nearEnd)];
+  const h = [...near, ...(d.long?.[direction] || []).filter((x) => x.ms > nearEnd)].filter((x) => !isDetour(x, dest.route));
   const i = h.findIndex((x) => x.ms > departMs);
   const a = i > 0 ? h[i - 1] : i === 0 ? h[0] : h[h.length - 1];
   const b = i > 0 ? h[i] : a;
