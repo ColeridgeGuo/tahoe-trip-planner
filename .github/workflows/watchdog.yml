@@ -1,23 +1,35 @@
 name: Watchdog
 
 # A safety net, not the schedule. The 15-minute refresh is triggered from outside (see deploy.yml). If that
-# stops - the cron-job is disabled, or its GitHub token expires - nothing would notice. Once an hour this
-# checks how old the published data is; only when it is too old does it start the refresh itself, and that
-# run sends a "refresh has stopped" notification (once a day at most). While the outside trigger works this
-# does nothing: no fetch, no TomTom requests.
-# GitHub's own scheduler runs late and unevenly, which is fine here. GitHub also switches a scheduled
-# workflow off after 60 days without a commit to the repository; it sends an email when it does.
+# stops - the cron-job is disabled, or its GitHub token expires - nothing would notice. This checks how old
+# the published data is; only when it is too old does it start the refresh itself, and that run sends a
+# "refresh has stopped" notification (once a day at most). While the outside trigger works this does
+# nothing: no fetch, no TomTom requests.
+#
+# It is started two ways, so that neither has to be on time:
+# - from outside, by a second cron-job that calls workflow_dispatch at :07, :22, :37 and :52. This is the one
+#   that makes the check prompt: a stopped refresh is noticed within the hour.
+# - by GitHub's own scheduler at the same minutes. GitHub ran the old hourly schedule only about every eight
+#   hours (18-20 Nov 2026), so this is the fallback for when the outside service itself, or the token both
+#   cron-jobs share, is what failed. GitHub also switches a scheduled workflow off after 60 days without a
+#   commit to the repository; it sends an email when it does.
 on:
   schedule:
-    - cron: '37 * * * *'
+    - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
 
 permissions:
   actions: write
 
+# The two triggers can land together; one check at a time.
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Start a refresh if the published data is too old
         env:
@@ -31,4 +43,9 @@ jobs:
           age=$(( ($(date +%s) - at / 1000) / 60 ))
           echo "Published data is $age min old (limit $MAX_AGE_MIN)."
           if [ "$age" -le "$MAX_AGE_MIN" ]; then exit 0; fi
+          # A refresh started in the last 20 minutes and not finished yet (by the previous check, or by the
+          # cron-job coming back) will publish shortly; a second one would only queue behind it.
+          busy=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow deploy.yml --limit 5 --json status,createdAt \
+            --jq '[.[] | select(.status != "completed" and (.createdAt | fromdateiso8601) > (now - 1200))] | length' || echo 0)
+          if [ "${busy:-0}" -gt 0 ]; then echo "A refresh is already running; not starting another."; exit 0; fi
           gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref main -f stale_min="$age"

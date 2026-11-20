@@ -136,7 +136,7 @@ export function decide(told, cur, plan, dest, lang, nowMs = Date.now()) {
   return { title, body: lines.join('\n') + why, told: next };
 }
 
-// The scheduled refresh has stopped (the hourly watchdog found the published data too old and started this
+// The scheduled refresh has stopped (the watchdog found the published data too old and started this
 // run). Says so once a day at most; `wd` is when it was last said.
 export function watchdogNote(wd, ageMin, lang, nowMs = Date.now()) {
   if (wd?.at && nowMs - wd.at < WD_QUIET_MS) return null;

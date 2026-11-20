@@ -103,7 +103,7 @@
 ```mermaid
 flowchart LR
   cron["外部 cron-job<br>每 15 分钟"] -->|workflow_dispatch| deploy
-  watchdog["Watchdog 工作流<br>每小时"] -.->|数据超过 45 分钟没更新才触发| deploy
+  watchdog["Watchdog 工作流<br>每 15 分钟"] -.->|数据超过 45 分钟没更新才触发| deploy
   subgraph deploy["刷新数据并部署（GitHub Actions）"]
     fetch["scripts/fetch.mjs"] --> notify["scripts/notify.mjs"]
   end
@@ -174,7 +174,12 @@ flowchart LR
 
 ## Watchdog
 
-`.github/workflows/watchdog.yml` 是外部 cron-job 的兜底。它每小时一次（用 GitHub 自带的定时）检查已发布的数据有多旧。45 分钟以内什么都不做。超过了就自己启动刷新，那次运行会给登记了变化提醒的设备推送一条“定时刷新停了”的通知，每天最多一次。cron-job 正常时它不抓取任何数据。仓库 60 天没有提交时 GitHub 会停用定时工作流，停用时会发邮件给仓库所有者。
+`.github/workflows/watchdog.yml` 是外部 cron-job 的兜底。它检查已发布的数据有多旧。45 分钟以内什么都不做。超过了就自己启动刷新（已经有一次刷新在跑就不重复启动），那次运行会给登记了变化提醒的设备推送一条“定时刷新停了”的通知，每天最多一次。cron-job 正常时它不抓取任何数据。
+
+它有两个触发来源，哪一个都不必准时：
+
+- 外部 cron-job 里的第二个任务，在每小时的 7、22、37、52 分调用 `watchdog.yml` 的 `workflow_dispatch`。靠它，刷新停了一小时内就能发现。
+- GitHub 自带的定时，同样的分钟。GitHub 的定时很不准（原来设的每小时一次，实际大约 8 小时才跑一次），所以它只在外部服务本身或两个任务共用的令牌出问题时兜底。仓库 60 天没有提交时 GitHub 会停用定时工作流，停用时会发邮件给仓库所有者。
 
 ## 部署自己的一份
 
@@ -183,6 +188,7 @@ flowchart LR
 3. 要用变化提醒，再添加 secret `ALERT_GIST_ID`（同步连上后，这个 ID 显示在页面的设置 → 变化提醒里）。iPhone 上要先把页面添加到主屏幕才能收到通知。
 4. 推送到 `main`。第一次运行就会部署站点。
 5. 让外部 cron-job 每 15 分钟调用一次工作流的 `workflow_dispatch` 接口（`POST /repos/<owner>/<repo>/actions/workflows/deploy.yml/dispatches`，内容 `{"ref":"main"}`，令牌要有 Actions 写权限）。
+6. 在同一个 cron-job 服务里再加一个任务，在每小时的 7、22、37、52 分调用 `POST /repos/<owner>/<repo>/actions/workflows/watchdog.yml/dispatches`，内容和令牌同上。建议把两个任务的失败通知都打开。
 
 密钥和令牌只存在仓库的 secrets 和你自己的浏览器里，代码里没有。
 
