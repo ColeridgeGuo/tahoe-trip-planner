@@ -305,3 +305,6 @@ select{appearance:none;-webkit-appearance:none;cursor:pointer;padding-right:1.87
 .pastrow.days span,.pastrow.ticks span{font-size:0.625rem;color:var(--mute);white-space:nowrap;overflow:visible;height:0.875rem}
 .pastrow.days span{font-weight:600;color:var(--ink)}
 .lg.na{background:repeating-linear-gradient(135deg,var(--line) 0 2px,transparent 2px 4px)}
+
+/* A moon after the pass-through time of a route point reached with the sun down. */
+td .night{display:inline-block;vertical-align:-0.125rem;margin-left:0.25rem;color:var(--mute)}td .night svg{width:0.8125rem;height:0.8125rem}

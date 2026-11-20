@@ -488,6 +488,7 @@ function factorText(f) {
       return t('m.' + f.msg, { v: fDur(v.sec) }) + cmp + (v.snowMin ? ' ' + t('m.driveSnow', { a: v.snowMin[0], b: v.snowMin[1] }) : '');
     }
     case 'ev': return t('m.' + f.msg, { v: fT(v), climb: nm(d.route.climb) });
+    case 'light': return t('m.' + f.msg, { where: esc(nm(v.at.point.name)), rise: v.rise ? fTime(v.rise) : '–', set: v.set ? fTime(v.set) : '–' });
     case 'fresh': return t('m.' + f.msg, { v: fAgo(Date.now() - v * 6e4).replace(/前$| ago$/, '') });
     default: return '';
   }
@@ -530,7 +531,10 @@ function viewVerdict() {
   </section>`;
 
   const order = { nogo: 0, caution: 1, ok: 2, info: 3 };
-  const factors = [...ev.factors].sort((a, b) => order[a.level] - order[b.level]).map((f) => {
+  // Whether the mountain road is driven in the dark: listed with the reasons, without changing the verdict.
+  const sun = L.daylight(ev.stops, d.route);
+  const light = sun ? [{ key: 'light', level: 'info', msg: !sun.dark.length ? 'lightDay' : sun.before ? 'lightBefore' : 'lightAfter', v: sun }] : [];
+  const factors = [...ev.factors, ...light].sort((a, b) => order[a.level] - order[b.level]).map((f) => {
     const tag = f.staleAt ? fAgo(f.staleAt) : ['chain', 'incidents'].includes(f.key) || f.msg === 'driveLive' || f.msg === 'driveDetour' ? liveTag(f.key === 'chain' && S.chainLiveAt) : f.msg === 'driveFc' ? t('fcTag') : ['snow', 'alerts', 'wind', 'lift', 'ev'].includes(f.key) ? t('fcTag') : '';
     const link = { chain: '#roads', closures: '#roads', incidents: '#roads', snow: '#weather', lift: '#resort', drive: '#roads' }[f.key];
     return `<li class="${f.level}">${dot(f.level)}<div><div class="ft">${t('f.' + f.key)}${tag ? `<span class="tag">${tag}</span>` : ''}${link ? `<a class="more" href="${link}">›</a>` : ''}</div><div class="fm">${factorText(f)}${f.staleAt ? ` <span class="muted">${t('m.srcStale', { v: fAgo(f.staleAt) })}</span>` : ''}</div></div></li>`;
@@ -544,7 +548,7 @@ function viewVerdict() {
   <p class="note"><b>${win ? `${t('bestWin')}: ${fHour(win.from)} – ${fHour(win.to + 1)}` : t('noWin')}${last?.h != null ? ` · ${t('lastOk', { h: fHour(last.h) })}` : ''}</b> · ${t('stripHint')}${hasDrive ? ' ' + t('stripDrive') : ''}</p>`;
 
   const along = `<div class="tablewrap"><table><thead><tr><th></th><th>${t('time')}</th><th>${t('temp')}</th><th>${t('snowRate')}</th><th>${t('snowLevel')}</th><th>${t('gust')}</th></tr></thead><tbody>${ev.stops.map((s) => `<tr>
-      <th>${esc(nm(s.point.name))}<small>${fElev(s.elevM)}</small></th><td>${fTime(s.ms)}</td>${s.missing ? `<td colspan="4" class="muted">${t('noData')}</td>` : `<td>${fT0(s.temp)}</td><td class="${s.snow >= L.TH.snowHeavy ? 'bad' : s.snow >= L.TH.snowLight ? 'warn' : ''}">${s.snow > 0 ? fSnow(s.snow) + '/h' : s.qpf > 0.1 ? '🌧' : '–'}</td><td>${fElev(s.snowLevel)}</td><td>${fWind(s.gust)}</td>`}</tr>`).join('')}</tbody></table></div>`;
+      <th>${esc(nm(s.point.name))}<small>${fElev(s.elevM)}</small></th><td>${fTime(s.ms)}${L.sunDown(s.point.lat, s.point.lon, s.ms) ? `<span class="night" title="${t('nightTip')}" aria-label="${t('nightTip')}">${svg('<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>')}</span>` : ''}</td>${s.missing ? `<td colspan="4" class="muted">${t('noData')}</td>` : `<td>${fT0(s.temp)}</td><td class="${s.snow >= L.TH.snowHeavy ? 'bad' : s.snow >= L.TH.snowLight ? 'warn' : ''}">${s.snow > 0 ? fSnow(s.snow) + '/h' : s.qpf > 0.1 ? '🌧' : '–'}</td><td>${fElev(s.snowLevel)}</td><td>${fWind(s.gust)}</td>`}</tr>`).join('')}</tbody></table></div>`;
 
   return controls + alertRow + hero + card('basis', t('basis'), `<ul class="factors">${factors}</ul>`) + card('strip', `${t('stripTitle')} · ${fDay(day)}`, stripHtml) + card('week', t('wkTitle'), folded.has('week') ? '' : weekHtml()) + card('along', t('alongTitle'), along);
 }

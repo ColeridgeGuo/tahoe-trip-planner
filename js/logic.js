@@ -711,6 +711,46 @@ export function chainPast(hist, direction, nowMs = Date.now(), n = 48) {
   return { cells, since: { level: last.level, t: first.t, hours: Math.max(1, Math.round((nowMs - first.t) / 36e5)), open: first === cells[0], fromStart: first === known[0] && first !== cells[0] } };
 }
 
+// ---------- daylight ----------
+// The sun's height above the horizon in degrees at a place and time (low-precision formulas from the
+// Astronomical Almanac, good to a small fraction of a degree: a minute or two of sunrise and sunset).
+const RAD = Math.PI / 180;
+export function sunAlt(lat, lon, ms) {
+  const n = ms / 864e5 - 10957.5; // days since 2000-01-01 12:00 UTC
+  const g = (357.528 + 0.9856003 * n) * RAD;
+  const lam = (280.46 + 0.9856474 * n) * RAD + (1.915 * Math.sin(g) + 0.02 * Math.sin(2 * g)) * RAD;
+  const eps = (23.439 - 4e-7 * n) * RAD;
+  const ra = Math.atan2(Math.cos(eps) * Math.sin(lam), Math.cos(lam));
+  const dec = Math.asin(Math.sin(eps) * Math.sin(lam));
+  const ha = ((18.697374558 + 24.06570982441908 * n) * 15 + lon) * RAD - ra;
+  return Math.asin(Math.sin(lat * RAD) * Math.sin(dec) + Math.cos(lat * RAD) * Math.cos(dec) * Math.cos(ha)) / RAD;
+}
+const SUN_UP = -0.833; // the sun's upper edge on the horizon, with refraction
+export const sunDown = (lat, lon, ms) => sunAlt(lat, lon, ms) < SUN_UP;
+// Sunrise and sunset (ms) at a place on the Pacific day that `ms` falls in, to the minute.
+export function sunTimes(lat, lon, ms) {
+  const noon = Date.parse(`${dayKey(ms)}T12:00:00-08:00`);
+  let rise = null;
+  let set = null;
+  for (let t = noon - 12 * 36e5; t < noon + 12 * 36e5; t += 6e4) {
+    const up = !sunDown(lat, lon, t);
+    const next = !sunDown(lat, lon, t + 6e4);
+    if (!up && next) rise = t + 6e4;
+    if (up && !next) set = t + 6e4;
+  }
+  return { rise, set };
+}
+// For a drive (`stops` from alongRoute()): which of the mountain points are passed with the sun down, and the
+// sunrise and sunset at the first of them (or at the first mountain point when all are passed in daylight).
+// A note for the page only; it does not change the verdict.
+export function daylight(stops, route) {
+  const mtn = stops.filter((s) => route.mountainPoints.includes(s.point.id));
+  if (!mtn.length) return null;
+  const dark = mtn.filter((s) => sunDown(s.point.lat, s.point.lon, s.ms));
+  const at = dark[0] || mtn[0];
+  return { dark, at, ...sunTimes(at.point.lat, at.point.lon, at.ms), before: dark.length > 0 && hourOf(dark[0].ms) < 12 };
+}
+
 // ---------- TomTom allowance ----------
 // How much of the month's free TomTom requests is used, from the count the fetch script publishes
 // (`data.tomtom`). lv 1: close to the allowance, lv 2: past it. `from` is set only when the count began
