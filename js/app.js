@@ -522,7 +522,7 @@ function viewVerdict() {
   const sel = pickedHour();
   const busy = alerts.status() === 'busy';
   const alertRow = plan || sel ? `<div class="alertrow">
-    ${plan ? `<span class="tag ok">${t('al.on', { when: fWhen(plan.departMs) })}</span><button class="ghost" data-act="alertOff" ${busy ? 'disabled' : ''}>${t('al.off')}</button>` : ''}
+    ${plan ? `${plan.departMs !== sel?.ms ? `<button class="tag ok link" data-act="alertGo">${t('al.on', { when: fWhen(plan.departMs) })} ›</button>` : `<span class="tag ok">${t('al.on', { when: fWhen(plan.departMs) })}</span>`}<button class="ghost" data-act="alertOff" ${busy ? 'disabled' : ''}>${t('al.off')}</button>` : ''}
     ${sel && plan?.departMs !== sel.ms ? `<button class="ghost" data-act="alertOn" ${busy ? 'disabled' : ''}>${t(plan ? 'al.move' : 'al.remind')}</button>` : ''}
     ${busy ? `<span class="muted">${t('al.saving')}</span>` : S.alertErr ? `<span class="tag bad">${t('al.failed')}</span>` : ''}</div>` : '';
 
@@ -960,6 +960,7 @@ document.addEventListener('click', (e) => {
     }
     case 'wk': { const [dir, day, h] = v.split('|'); setPref('direction', dir); S.depart = { day, h: +h }; render(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
     case 'hour': S.depart = { day: S.depart === 'now' ? L.dayKey(Date.now()) : S.depart.day, h: +v }; break;
+    case 'alertGo': { const ms = alerts.plan(S.destId, S.direction)?.departMs; if (ms) S.depart = { day: L.dayKey(ms), h: L.hourOf(ms) }; break; } // the watched departure, from the green tag
     case 'wx': S.wxPoint = v; break;
     case 'quotaSeen': store.set('quotaSeen', b.dataset.v); renderChrome(); return;
     case 'refresh': b.classList.add('spin'); chainForce = true; loadData(); if (list.hasToken()) list.sync(); return;

@@ -240,7 +240,7 @@ footer{max-width:60rem;margin:auto;padding:0.25rem 1.25rem 1rem;font-size:0.7188
 #map.invert .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.88) saturate(0.7)}
 .strip .dr{color:var(--ink);opacity:.75;font-variant-numeric:tabular-nums}
 /* change alerts */
-.alertrow{display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin:0.5rem 0}.alertrow .ghost{margin-top:0}.alertrow .tag{margin-left:0;padding:0.25rem 0.625rem}
+.alertrow{display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin:0.5rem 0}.alertrow .ghost{margin-top:0}.alertrow .tag{margin-left:0;padding:0.25rem 0.625rem}.alertrow .tag.link{margin-left:0}
 /* week overview */
 .wkdir{display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem!important}.wkdir:first-child{margin-top:0!important}.wkdir span{font-weight:400;font-variant-numeric:tabular-nums}
 .wk{display:grid;gap:0.25rem}
