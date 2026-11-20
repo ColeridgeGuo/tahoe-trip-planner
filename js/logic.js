@@ -12,6 +12,10 @@ const worst = (a, b) => (LV[b] > LV[a] ? b : a);
 export const TH = {
   snowLight: 2, // mm/h: roads start to get slick
   snowHeavy: 25, // mm/h (~1 in/h): chain control very likely
+  // mm/h (~0.2 in/h): from here up, expect R2 rather than R1. In the storm of 18-20 Nov 2026 US-50 went
+  // straight to R2 with 8 mm/h forecast at the pass and stayed there for two days at 5-28 mm/h, without an
+  // hour of R1 (data/history.json). One storm; to be checked against the next ones.
+  snowChain: 5,
   snowExtreme: 50, // mm/h (~2 in/h): closures / spin-outs likely
   gustRoad: 80, // km/h on the pass
   gustLiftMod: 55, // km/h on the summit: upper lifts may go on hold
@@ -89,6 +93,9 @@ export function driveTime(data, dest, departMs, direction, nowMs = Date.now()) {
   if (!d || !d[direction]) return fixed;
   if (departMs - nowMs < 30 * 6e4 && nowMs - d.at < 45 * 6e4) {
     const x = d[direction];
+    // The live route goes round the mountain road as well (it happened for hours on 19 Nov 2026 while US-50
+    // was open under R2): not a drive time. `detour` is what TomTom said, for the page to explain.
+    if (isDetour(x, dest.route)) return { ...fixed, detour: x.sec };
     const base = x.historicSec ?? x.noTrafficSec;
     return { hours: x.sec / 3600, src: 'live', sec: x.sec, deltaMin: base ? Math.round((x.sec - base) / 60) : null, vs: x.historicSec ? 'usual' : 'free', stops: x.stops || null };
   }
@@ -236,8 +243,8 @@ export function forecastFactors(data, dest, departMs, direction, hours = dest.ro
   const kind = snow.msg === 'snowHeavy' || snow.msg === 'snowExtreme' ? 'heavy' : snow.msg === 'snowLight' || snow.msg === 'snowPack' ? 'light' : null;
   const delay = kind ? TH.snowDelay[kind] : null;
   if (vehicle && kind) {
-    // Heavy snow or snow lying on the road: expect R2. Light snow: R1 at most, and only worth a reminder.
-    const r2 = kind === 'heavy' || snow.msg === 'snowPack';
+    // Steady snow or snow lying on the road: expect R2. Lighter than that: R1 at most, and only worth a reminder.
+    const r2 = peak.rate >= TH.snowChain || !!pack;
     const cv = chainVerdict(r2 ? 2 : 1, vehicle);
     if (r2 && cv.level === 'nogo') { snow.level = 'nogo'; snow.need = cv.msg === 'chainR2Carry' ? 'fcCarry' : 'fcNoChains'; }
     else if (r2 && cv.msg === 'chainInstall') snow.need = 'fcInstall';
@@ -328,9 +335,10 @@ export function chainOn(data, route, direction) {
   return { rows, max: top <= 0 && (unknown.length || silent) ? -1 : top, active: rows.filter((c) => c.level > 0), unknown };
 }
 
-// Not the road itself: ramps and connectors, and the rest areas and side streets Caltrans lists under the
-// same route (I-80 has "Rest Area / Full" records all winter: the Donner Summit rest areas, not the freeway).
-export const isRamp = (c) => /ramp|connector|rest area|surface street/i.test(c.facility || '');
+// Not the road itself: ramps and connectors, and the rest areas, car parks and side streets Caltrans lists
+// under the same route (I-80 has "Rest Area / Full" records all winter: the Donner Summit rest areas, not the
+// freeway; a "Park & Ride Lot / Full" at Penryn would have made every evening drive home a no-go).
+export const isRamp = (c) => /ramp|connector|rest area|surface street|park|\blot\b|vista|scale|inspection/i.test(c.facility || '');
 export const isFull = (c) => /full/i.test(c.type) && !isRamp(c);
 // Closures and incidents carry a direction of travel ('East', 'West', 'East / West'). A record with no
 // direction, or one that is not stated, counts for both ways.
@@ -419,10 +427,14 @@ export function evaluate(data, dest, opts) {
   // Drive time (TomTom). Only an unusually slow drive changes the verdict. Carried-over times are still used
   // while they are recent enough for driveTime(); after that it falls back to the fixed estimate.
   // Snow on the way adds time TomTom does not know about. The one exception: leaving now with chain control
-  // already up, where the live time has the slow traffic in it.
+  // already up and a live time that is already that much longer than usual, so the slow traffic is in it.
+  // Chain control alone does not show: on 18-19 Nov 2026 the live time over the pass eastbound stayed at its
+  // dry 37 minutes through 30 hours of R2 (data/history.json).
   const chainNow = factors.find((f) => f.key === 'chain')?.v?.max > 0;
-  if (fc.delay && !(dt.src === 'live' && chainNow)) dt.snowMin = fc.delay;
-  if (dt.src !== 'fixed') add('drive', { key: 'drive', level: dt.deltaMin >= 60 ? 'caution' : 'ok', msg: dt.src === 'live' ? 'driveLive' : 'driveFc', v: dt });
+  if (fc.delay && !(dt.src === 'live' && chainNow && dt.deltaMin >= fc.delay[0])) dt.snowMin = fc.delay;
+  // TomTom routes round the mountain road right now: usually a hold or a short closure it has heard of.
+  if (dt.detour) add('drive', { key: 'drive', level: 'caution', msg: 'driveDetour', v: dt });
+  else if (dt.src !== 'fixed') add('drive', { key: 'drive', level: dt.deltaMin >= 60 ? 'caution' : 'ok', msg: dt.src === 'live' ? 'driveLive' : 'driveFc', v: dt });
   else if (st.drive?.ok === false) factors.push({ key: 'drive', level: 'info', msg: 'driveFailed' });
   // No drive times are fetched for this destination: say what the times on the page assume and link to the live one.
   else if (dest.driveTimes === 'maps') factors.push({ key: 'drive', level: 'info', msg: 'driveMaps' });

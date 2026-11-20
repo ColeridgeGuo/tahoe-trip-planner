@@ -223,7 +223,7 @@ describe('Northstar: I-80, then CA-267', () => {
     assert.equal(go(northstar, data, 'back').level, 'go');
   });
   test('a closed rest area or side street is not a closed freeway', () => {
-    const data = makeData({ closures: [closure({ hw: 'I-80', dir: 'East', facility: 'Rest Area', from: 'Route 80', to: 'Donner Summit Rest Area (EB)', end: null }), closure({ hw: 'I-80', dir: 'East', facility: 'Surface Street', delayMin: 30 })] }, r);
+    const data = makeData({ closures: [closure({ hw: 'I-80', dir: 'East', facility: 'Rest Area', from: 'Route 80', to: 'Donner Summit Rest Area (EB)', end: null }), closure({ hw: 'I-80', dir: 'East', facility: 'Surface Street', delayMin: 30 }), closure({ hw: 'I-80', dir: 'East', facility: 'Park & Ride Lot', from: 'Route 80', to: 'Penryn Rd Park & Ride Lot' })] }, r);
     assert.equal(go(northstar, data).level, 'go');
     assert.equal(factor(go(northstar, data), 'closures').msg, 'closedNone');
     assert.equal(go(northstar, makeData({ closures: [closure({ hw: 'I-80', dir: 'East', facility: 'Mainline' })] }, r)).level, 'nogo');

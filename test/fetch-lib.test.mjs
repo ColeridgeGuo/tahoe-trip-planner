@@ -1,7 +1,7 @@
 // What the fetch script does with a failed source, and how it reads the feeds (scripts/lib.mjs).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { HOURS, MAX_CARRY_MS, carried, source, shiftWeather, carriedWeather, hourly, ptToMs, stopTimes, PAST_H, pastSnow, HISTORY_MAX, addHistory, quotaUsed, dedupe, streamUrl, liveStreams, STREAM_TRIES, MONTHLY_QUOTA, LIVE_EVERY_MS, NEAR_H, MID_EVERY_MS, DETOUR_EVERY_MS, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours, snotelStations } from '../scripts/lib.mjs';
+import { HOURS, MAX_CARRY_MS, carried, source, shiftWeather, carriedWeather, hourly, ptToMs, stopTimes, PAST_H, pastSnow, HISTORY_MAX, addHistory, quotaUsed, dedupe, dedupeIncidents, streamUrl, liveStreams, STREAM_TRIES, MONTHLY_QUOTA, LIVE_EVERY_MS, NEAR_H, MID_EVERY_MS, DETOUR_EVERY_MS, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours, snotelStations } from '../scripts/lib.mjs';
 
 const H = 36e5;
 const MIN = 6e4;
@@ -362,6 +362,17 @@ describe('closure feed', () => {
   test('a closure listed twice is kept once; different ones stay', () => {
     const a = { from: 'A', to: 'B', start: 1 };
     assert.deepEqual(dedupe([a, { ...a }, { ...a, start: 2 }]), [a, { ...a, start: 2 }]);
+  });
+  test('a CHP incident logged by both the dispatch centre and its service patrol desk is listed once', () => {
+    const at = Date.UTC(2026, 10, 20, 1);
+    const sa = { id: '261119SA0865', time: at, type: 'Trfc Collision-Unkn Inj', loc: 'Us50 W / Jeo Sr99', hw: 'US-50', dir: 'West', area: 'South Sac' };
+    const fsp = { ...sa, id: '261119SAFSP0081', time: at + 2 * 6e4, area: 'South Sac FSP' };
+    assert.deepEqual(dedupeIncidents([fsp, sa]), [sa]);
+    assert.deepEqual(dedupeIncidents([sa, fsp]), [sa]);
+    const other = { ...sa, id: 'x', loc: 'Us50 W / Watt Ave' };
+    const later = { ...sa, id: 'y', time: at + 2 * 36e5 };
+    const east = { ...sa, id: 'z', dir: 'East' };
+    assert.deepEqual(dedupeIncidents([sa, other, later, east]), [sa, other, later, east]);
   });
 });
 
