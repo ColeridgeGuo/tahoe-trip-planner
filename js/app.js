@@ -124,6 +124,20 @@ function pickedHour() {
   return h && h.ms > Date.now() ? h : null;
 }
 
+// The hours of a day that can still be left at: in the forecast and not gone by.
+const openHours = (day) => S.ix.hours.filter((x) => x.day === day && x.ms + 36e5 > Date.now());
+// The hour to show when a day is picked: the same hour as before if that day has it, otherwise the next one
+// it has (today, when that hour has gone by) or its last (the final day, where the forecast stops early).
+function hourOn(day, h) {
+  const open = openHours(day);
+  return (open.find((x) => x.h >= h) || open.at(-1))?.h ?? h;
+}
+// A picked departure that has gone by (the page was left open) is "now" from then on, and says so in the
+// controls, instead of showing an hour that is no longer on offer.
+function dropPastDepart() {
+  if (S.depart !== 'now' && S.ix && !sharedCheck && !openHours(S.depart.day).some((x) => x.h === S.depart.h)) S.depart = 'now';
+}
+
 // "Live" only holds while the network is reachable; offline, say how old the reading is instead.
 const liveTag = (at) => (S.offline ? fAgo(at || S.data.generatedAt) : t('liveTag'));
 
@@ -174,9 +188,20 @@ async function fetchData(id) {
 }
 
 // Chain control straight from Caltrans (CORS-enabled), so the verdict is not limited by the scheduled refresh.
+// The two district files are 150-220 KB each and Caltrans sends them uncompressed, so they are only asked
+// for on the tabs that show chain control, and not while the reading on hand (the data file's, refreshed
+// every 15 minutes, or the last one read here) is under LIVE_CHAIN_MS old. The refresh button always asks.
+const LIVE_CHAIN_MS = 4 * 6e4;
+let chainBusy = null;
+let chainForce = false;
 async function liveChain() {
-  if (!S.data) return;
+  const force = chainForce;
+  chainForce = false;
+  if (!S.data || !['verdict', 'roads'].includes(S.tab) || document.hidden) return;
   const id = S.destId;
+  const st = S.data.status?.chain;
+  if (chainBusy === id || (!force && Date.now() - Math.max(S.chainLiveAt || 0, st?.ok ? st.at : 0) < LIVE_CHAIN_MS)) return;
+  chainBusy = id;
   const f = dest().feeds;
   try {
     const parts = await Promise.all(f.ccDistricts.map(async (d) => {
@@ -191,6 +216,8 @@ async function liveChain() {
     softRender();
   } catch (e) {
     console.warn('live chain', e);
+  } finally {
+    if (chainBusy === id) chainBusy = null;
   }
 }
 
@@ -283,6 +310,7 @@ function render() {
   renderChrome();
   const m = $('#main');
   if (!S.data) { m.innerHTML = `<p class="muted pad">${S.error ? `${t('loadFail')}: ${esc(S.error)}` : t('loading')}</p>`; if (S.tab === 'list') m.innerHTML = viewList(); return; }
+  dropPastDepart();
   // Keep the live map element across re-renders so tiles and the current view are not thrown away.
   const keep = MAP.map ? $('#map') : null;
   const view = viewState(m);
@@ -441,7 +469,7 @@ function factorText(f) {
       return t('m.' + f.msg, { hw, n: v.full.length || v.list.length, d: v.delay, where: esc(v.full.map((c) => `${c.from} → ${c.to}`).slice(0, 2).join('; ')) });
     case 'incidents':
       if (!v) return t('m.' + f.msg);
-      return t('m.' + f.msg, { hw, n: v.all.length, s: v.serious.length }) + (f.live ? '' : ` <span class="muted">(${t('refOnly')})</span>`);
+      return t('m.' + f.msg, { hw, n: v.all.length, s: v.serious.length, from: esc(nm((d.route.points.find((p) => p.role === 'foothill') || d.route.points[0]).name)) }) + (f.live ? '' : ` <span class="muted">(${t('refOnly')})</span>`);
     case 'snow':
       if (f.msg === 'snowPack') return t('m.snowPack', { h: v.pack.hours, total: fSnow(v.pack.mm), temp: fT(v.pack.temp), where: esc(nm(v.pack.stop.point.name)) }) + need;
       return t('m.' + f.msg, v?.stop ? { rate: fSnow(v.rate), where: esc(nm(v.stop.point.name)) } : {}) + need;
@@ -452,6 +480,7 @@ function factorText(f) {
     case 'lift': return t('m.' + f.msg, { v: fWind(v.gust), day: fDay(v.day), lifts: nm(d.resort.windLifts) });
     case 'drive': {
       if (f.msg === 'driveMaps') return `${t('m.driveMaps', { v: fDur(d.route.driveHours * 3600) })} <a href="${esc(L.mapsUrl(d, S.direction))}" target="_blank" rel="noopener">${t('mapsLive')}</a>`;
+      if (f.msg === 'driveDetour') return t('m.driveDetour', { v: fDur(v.detour), u: fDur(d.route.driveHours * 3600) });
       if (!v) return t('m.' + f.msg, { v: fDur(d.route.driveHours * 3600) });
       const dm = v.deltaMin;
       const cmp = dm == null ? '' : Math.abs(dm) < 5 ? t(v.vs === 'usual' ? 'm.driveSame' : 'm.driveFree') : t(`m.drive${dm > 0 ? 'More' : 'Less'}${v.vs === 'usual' ? 'Usual' : 'Free'}`, { d: Math.abs(dm) });
@@ -501,7 +530,7 @@ function viewVerdict() {
 
   const order = { nogo: 0, caution: 1, ok: 2, info: 3 };
   const factors = [...ev.factors].sort((a, b) => order[a.level] - order[b.level]).map((f) => {
-    const tag = f.staleAt ? fAgo(f.staleAt) : ['chain', 'incidents'].includes(f.key) || f.msg === 'driveLive' ? liveTag(f.key === 'chain' && S.chainLiveAt) : f.msg === 'driveFc' ? t('fcTag') : ['snow', 'alerts', 'wind', 'lift', 'ev'].includes(f.key) ? t('fcTag') : '';
+    const tag = f.staleAt ? fAgo(f.staleAt) : ['chain', 'incidents'].includes(f.key) || f.msg === 'driveLive' || f.msg === 'driveDetour' ? liveTag(f.key === 'chain' && S.chainLiveAt) : f.msg === 'driveFc' ? t('fcTag') : ['snow', 'alerts', 'wind', 'lift', 'ev'].includes(f.key) ? t('fcTag') : '';
     const link = { chain: '#roads', closures: '#roads', incidents: '#roads', snow: '#weather', lift: '#resort', drive: '#roads' }[f.key];
     return `<li class="${f.level}">${dot(f.level)}<div><div class="ft">${t('f.' + f.key)}${tag ? `<span class="tag">${tag}</span>` : ''}${link ? `<a class="more" href="${link}">›</a>` : ''}</div><div class="fm">${factorText(f)}${f.staleAt ? ` <span class="muted">${t('m.srcStale', { v: fAgo(f.staleAt) })}</span>` : ''}</div></div></li>`;
   }).join('');
@@ -894,7 +923,7 @@ document.addEventListener('click', (e) => {
     case 'hour': S.depart = { day: S.depart === 'now' ? L.dayKey(Date.now()) : S.depart.day, h: +v }; break;
     case 'wx': S.wxPoint = v; break;
     case 'quotaSeen': store.set('quotaSeen', b.dataset.v); renderChrome(); return;
-    case 'refresh': b.classList.add('spin'); loadData(); if (list.hasToken()) list.sync(); return;
+    case 'refresh': b.classList.add('spin'); chainForce = true; loadData(); if (list.hasToken()) list.sync(); return;
     case 'settings': t = makeT(S.lang); return openSettings();
     case 'cam': return openCam(+v);
     case 'camLive': return playLive(+v);
@@ -950,7 +979,7 @@ document.addEventListener('change', (e) => {
   if (!el) return;
   S.shareGone = false;
   switch (el.dataset.change) {
-    case 'day': S.depart = { day: el.value, h: S.depart === 'now' ? 8 : S.depart.h }; break;
+    case 'day': S.depart = { day: el.value, h: hourOn(el.value, S.depart === 'now' ? 8 : S.depart.h) }; break;
     case 'hour': S.depart = { day: S.depart === 'now' ? L.dayKey(Date.now()) : S.depart.day, h: +el.value }; break;
     case 'dest': destroyMap(); setPref('destId', el.value); store.set('dest', el.value); S.data = null; S.chainLiveAt = null; S.camsLoaded.clear(); loadData(); break;
     case 'toggle': list.toggle(el.dataset.v); return;
@@ -969,7 +998,7 @@ document.addEventListener('submit', (e) => {
 });
 window.addEventListener('hashchange', () => {
   const k = location.hash.slice(1);
-  if (TABS.includes(k)) { S.tab = k; render(); window.scrollTo(0, 0); }
+  if (TABS.includes(k)) { S.tab = k; render(); window.scrollTo(0, 0); liveChain(); }
 });
 list.subscribe(() => { if (S.tab === 'list') { const typing = document.activeElement?.id === 'newItem' && $('#newItem').value; if (!typing) render(); } if ($('#dlg').open && $('#token') == null && $('#dlg h3')) openSettings(); });
 alerts.subscribe(() => { if (S.tab === 'verdict' && S.data) softRender(); });

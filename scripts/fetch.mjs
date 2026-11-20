@@ -3,7 +3,7 @@
 import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { DESTINATIONS } from '../js/config.js';
 import { CC_URL, normalizeChain, incidentDir } from '../js/normalize.js';
-import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes, pastSnow, addHistory, quotaUsed, dedupe, streamUrl, liveStreams, incidentRoad, MONTHLY_QUOTA, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours, snotelStations, SNOTEL_EVERY_MS } from './lib.mjs';
+import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes, pastSnow, addHistory, quotaUsed, dedupe, dedupeIncidents, streamUrl, liveStreams, incidentRoad, MONTHLY_QUOTA, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours, snotelStations, SNOTEL_EVERY_MS } from './lib.mjs';
 import { chainFor, roadsOf, isDetour } from '../js/logic.js';
 
 const UA = 'tahoe-trip-planner (personal trip dashboard, github pages)';
@@ -171,7 +171,7 @@ async function incidents(feeds, route) {
       details: details.slice(-3),
     });
   }
-  return out.sort((a, b) => a.lon - b.lon);
+  return dedupeIncidents(out).sort((a, b) => a.lon - b.lon);
 }
 
 // ---------- NWS ----------
@@ -407,7 +407,9 @@ for (const dest of DESTINATIONS) {
     // that starts or ends at the origin. Only from a reading taken in this hour: not one carried over after a
     // failure, nor a live reading from before the hour that is being reused because a new one is not due yet.
     const mtnMin = (x, out) => (out ? x.legs.slice(1) : x.legs.slice(0, -1)).reduce((s, l) => s + l.min, 0);
-    const live = dr && status.drive.ok && dr.at >= t0 ? { d: [dr.out.sec, dr.back.sec], m: [mtnMin(dr.out, true), mtnMin(dr.back, false)] } : {};
+    // A reading that goes round the mountain road (isDetour) is not a drive time and is left out.
+    const real = (x) => !isDetour(x, dest.route);
+    const live = dr && status.drive.ok && dr.at >= t0 ? { d: [real(dr.out) ? dr.out.sec : null, real(dr.back) ? dr.back.sec : null], m: [real(dr.out) ? mtnMin(dr.out, true) : null, real(dr.back) ? mtnMin(dr.back, false) : null] } : {};
     history = addHistory(history, { t: t0, e: lv(dest.route.outboundDir), w: lv(dest.route.returnDir), s: now0('snow'), c: now0('temp'), ...live, ...(obs && status.snotel.ok ? { sd: obs.stations.map((x) => x.depth) } : {}) }, mtn);
     await writeFile(new URL('../data/history.json', import.meta.url), JSON.stringify(history));
   }

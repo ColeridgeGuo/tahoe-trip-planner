@@ -382,6 +382,24 @@ describe('what forecast snow means for the car and the drive time', () => {
     assert.equal(awd.level, 'caution');
     assert.equal(awd.need, undefined);
   });
+  test('steady snow below "heavy": R2 is expected all the same', () => {
+    const f = snowF(later(L.TH.snowChain), car());
+    assert.equal(f.msg, 'snowLight');
+    assert.equal(f.level, 'nogo');
+    assert.equal(f.need, 'fcNoChains');
+    assert.equal(snowF(later(L.TH.snowChain), car({ chains: true })).need, 'fcInstall');
+    assert.equal(snowF(later(L.TH.snowChain), AWD).level, 'caution');
+    assert.equal(snowF(later(L.TH.snowChain - 1), car()).need, 'fcLight');
+  });
+  test('a live reading that goes round the mountain road is not shown as a drive time', () => {
+    const round = { sec: 46000, noTrafficSec: 44000, historicSec: 44500 };
+    const e = ev(makeData({ drive: liveDrive({ out: round }) }));
+    assert.equal(e.drive.src, 'fixed');
+    assert.equal(e.drive.detour, 46000);
+    assert.equal(e.endMs, NOW + route.driveHours * H);
+    assert.deepEqual([factor(e, 'drive').level, factor(e, 'drive').msg], ['caution', 'driveDetour']);
+    assert.equal(ev(makeData({ drive: liveDrive({ out: round }) }), { direction: 'back' }).drive.src, 'live');
+  });
   test('light snow: a reminder to bring chains, not a no-go', () => {
     const f = snowF(later(L.TH.snowLight), car());
     assert.equal(f.level, 'caution');
@@ -405,8 +423,11 @@ describe('what forecast snow means for the car and the drive time', () => {
     assert.equal(drive(makeData({ drive: liveDrive() })).snowMin, undefined);
     assert.deepEqual(drive({ ...snowing(L.TH.snowLight), drive: liveDrive() }).snowMin, L.TH.snowDelay.light);
     assert.deepEqual(drive({ ...snowing(L.TH.snowHeavy), drive: liveDrive() }).snowMin, L.TH.snowDelay.heavy);
-    // Leaving now with chain control already up: the live time has the slow traffic in it.
-    assert.equal(drive({ ...snowing(L.TH.snowHeavy), drive: liveDrive(), chain: chains(chainRow(2)) }).snowMin, undefined);
+    // Leaving now with chain control already up and a live time already that much over the usual: the slow
+    // traffic is in it. Chain control with a live time that has not moved still gets the estimate.
+    const slow = { sec: 13400 + 50 * 60, noTrafficSec: 13000, historicSec: 13400 };
+    assert.equal(drive({ ...snowing(L.TH.snowHeavy), drive: liveDrive({ out: slow }), chain: chains(chainRow(2)) }).snowMin, undefined);
+    assert.deepEqual(drive({ ...snowing(L.TH.snowHeavy), drive: liveDrive(), chain: chains(chainRow(2)) }).snowMin, L.TH.snowDelay.heavy);
     // The verdict itself is not changed by the estimate.
     assert.equal(factor(ev({ ...snowing(L.TH.snowLight), drive: liveDrive() }), 'drive').level, 'ok');
   });

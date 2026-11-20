@@ -189,6 +189,19 @@ export async function liveStreams(cams, probe) {
   }));
 }
 
+// CHP logs some incidents twice, once by the area's dispatch centre and once by its Freeway Service Patrol
+// desk ("South Sac" and "South Sac FSP"), under different ids. Two logs of the same type at the same place
+// within half an hour are one incident; the dispatch centre's log is the one kept.
+export function dedupeIncidents(list) {
+  const out = [];
+  for (const x of list) {
+    const i = out.findIndex((y) => y.type === x.type && y.loc === x.loc && y.hw === x.hw && y.dir === x.dir && Math.abs((y.time ?? 0) - (x.time ?? 0)) <= 30 * 6e4);
+    if (i < 0) out.push(x);
+    else if (/\bFSP$/i.test(out[i].area || '') && !/\bFSP$/i.test(x.area || '')) out[i] = x;
+  }
+  return out;
+}
+
 // The lane-closure feed lists some closures twice; keep one of each.
 export function dedupe(list) {
   const seen = new Set();
