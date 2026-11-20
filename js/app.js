@@ -540,7 +540,7 @@ function weekHtml() {
     }).join('')}</div></div>`).join('');
     return `<h3 class="wkdir">${t(dir)} · ${esc(nm(ends[0].name))} → ${esc(nm(ends[1].name))}${wk.lo == null ? '' : `<span>${t('driveLabel')} ${fDur(wk.lo, true)} – ${fDur(wk.hi, true)}</span>`}</h3><div class="wk">${head}${rows}</div>`;
   };
-  return block('out') + block('back') + `<div class="legend"><span><i class="lg ok"></i>${t('wkOk')}</span><span><i class="lg caution"></i>${t('wkCaution')}</span><span><i class="lg caution heavy"></i>${t('wkHeavy')}</span><span><i class="lg nogo"></i>${t('wkNogo')}</span></div><p class="note">${t(d.driveTimes === 'maps' ? 'wkHintMaps' : 'wkHint')} ${t('wkLastHint')}</p>`;
+  return block(S.direction) + `<div class="legend"><span><i class="lg ok"></i>${t('wkOk')}</span><span><i class="lg caution"></i>${t('wkCaution')}</span><span><i class="lg caution heavy"></i>${t('wkHeavy')}</span><span><i class="lg nogo"></i>${t('wkNogo')}</span></div><p class="note">${t(d.driveTimes === 'maps' ? 'wkHintMaps' : 'wkHint')}${S.direction === 'back' ? ' ' + t('wkLastHint') : ''}</p>`;
 }
 
 // ----- weather -----
