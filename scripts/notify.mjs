@@ -8,6 +8,7 @@ import { pathToFileURL } from 'node:url';
 import { DESTINATIONS, DEFAULT_VEHICLE } from '../js/config.js';
 import { evaluate, chainOn, LV, hourOf, quotaState, index, dayKey, departureStrip, lastClear } from '../js/logic.js';
 import { makeT } from '../js/i18n.js';
+import { shareQuery } from '../js/share.js';
 
 const FILE = 'tahoe-trip-alerts.json';
 const TZ = 'America/Los_Angeles';
@@ -237,6 +238,12 @@ export function watched(cfg, nowMs = Date.now()) {
   return Object.entries(cfg?.plans || {}).map(([k, p]) => ({ ...p, direction: p.direction || k })).filter((p) => p.departMs > nowMs);
 }
 
+// Where tapping the notification for a departure leads: the page showing that resort, direction and hour,
+// the same address a share link has.
+export function planUrl(site, dest, plan) {
+  return `${site}?${shareQuery({ destId: dest.id, direction: plan.direction, depart: { day: dayKey(plan.departMs), h: hourOf(plan.departMs) } })}`;
+}
+
 async function main() {
   // The state file is rebuilt on every run and published with the site, so whatever happens below, the
   // previous state has to be written back or the next run would find none.
@@ -288,7 +295,7 @@ async function main() {
     if (!msg) continue;
     if (msg.silent) { console.log(`alerts: ${dest.id} ${plan.direction}: recording the current state without notifying`); next[key] = msg.told; continue; }
     if (process.env.ALERT_DRY) { console.log(`--- ${msg.title}\n${msg.body}\n---`); next[key] = msg.told; continue; }
-    if (await send({ title: msg.title, body: msg.body, tag: `trip-${dest.id}-${plan.direction}` })) next[key] = msg.told; // nothing delivered: leave the state alone so the next run tries again
+    if (await send({ title: msg.title, body: msg.body, tag: `trip-${dest.id}-${plan.direction}`, url: planUrl(site, dest, plan) })) next[key] = msg.told; // nothing delivered: leave the state alone so the next run tries again
   }
   if (!plans.length) console.log('alerts: no departure being watched');
   await writeFile(stateUrl, JSON.stringify(next));

@@ -44,7 +44,8 @@ if (!TABS.includes(S.tab)) S.tab = 'verdict';
 if (!DESTINATIONS.some((d) => d.id === S.destId)) S.destId = DESTINATIONS[0].id;
 // A share link: show the view it describes, this once. The reader's own saved destination and direction are
 // left alone, and the address is cleaned up so that a reload or a later change is not pulled back to the link.
-const SHARED = parseShare(location.search, DESTINATIONS.map((d) => d.id));
+const DEST_IDS = DESTINATIONS.map((d) => d.id);
+const SHARED = parseShare(location.search, DEST_IDS);
 if (SHARED) {
   if (SHARED.destId) S.destId = SHARED.destId;
   if (SHARED.direction) S.direction = SHARED.direction;
@@ -53,6 +54,14 @@ if (SHARED) {
   try { history.replaceState(null, '', location.pathname); } catch { /* keep the address as it is */ }
 }
 let sharedCheck = !!SHARED?.depart; // the link's departure still has to be checked against the forecast
+// A departure from a link, once the forecast is on hand: an hour that has gone by, or is beyond the
+// forecast, shows "now" and says so.
+function checkShared() {
+  sharedCheck = false;
+  const dep = sharedDepart(S.depart, S.ix.hours, Date.now());
+  S.shareGone = dep !== S.depart;
+  S.depart = dep;
+}
 
 // ---------- formatting ----------
 const loc = () => (S.lang === 'zh' ? 'zh-CN' : 'en-US');
@@ -170,12 +179,7 @@ async function fetchData(id) {
     else S.chainLiveAt = null;
     S.data = d;
     S.ix = L.index(d);
-    if (sharedCheck) { // a link to an hour that has gone by, or is beyond the forecast, shows "now" and says so
-      sharedCheck = false;
-      const dep = sharedDepart(S.depart, S.ix.hours, Date.now());
-      S.shareGone = dep !== S.depart;
-      S.depart = dep;
-    }
+    if (sharedCheck) checkShared();
     S.error = null;
     S.offline = r.headers.get('X-Offline-Copy') === '1'; // set by sw.js when it had to fall back to its saved copy
   } catch (e) {
@@ -1037,7 +1041,34 @@ window.addEventListener('hashchange', () => {
 });
 list.subscribe(() => { if (S.tab === 'list') { const typing = document.activeElement?.id === 'newItem' && $('#newItem').value; if (!typing) render(); } if ($('#dlg').open && $('#token') == null && $('#dlg h3')) openSettings(); });
 alerts.subscribe(() => { if (S.tab === 'verdict' && S.data) softRender(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadData(); if (list.hasToken()) list.sync(); alerts.refresh(); } });
+// The same link, while the page is already open: a tapped alert (sw.js) asks for the view of its departure.
+function openView(url) {
+  const v = parseShare(new URL(url, location.href).search, DEST_IDS);
+  if (!v) return;
+  const moved = v.destId && v.destId !== S.destId;
+  if (moved) { destroyMap(); S.destId = v.destId; S.data = null; S.ix = null; S.chainLiveAt = null; S.camsLoaded.clear(); }
+  if (v.direction) S.direction = v.direction;
+  S.shareGone = false;
+  if (v.depart) { S.depart = v.depart; sharedCheck = true; if (S.ix) checkShared(); }
+  S.tab = 'verdict';
+  render();
+  window.scrollTo(0, 0);
+  loadData();
+}
+// The view a tapped alert left for this page (see sw.js), taken once and only while it is fresh.
+const OPEN_KEY = new URL('__open', location.href).href;
+const OPEN_FRESH_MS = 2 * 6e4;
+async function takeOpen() {
+  try {
+    const hit = await caches.match(OPEN_KEY);
+    if (!hit) return null;
+    for (const k of await caches.keys()) await (await caches.open(k)).delete(OPEN_KEY);
+    const { url, at } = await hit.json();
+    return Date.now() - at < OPEN_FRESH_MS ? url : null;
+  } catch { return null; }
+}
+const openPending = () => takeOpen().then((url) => { if (url) openView(url); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { loadData(); if (list.hasToken()) list.sync(); alerts.refresh(); openPending(); } });
 setInterval(() => { if (!document.hidden) loadData(); }, 5 * 6e4);
 // If the device switches to the scheme that was pinned by hand, go back to following the device.
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
@@ -1050,9 +1081,11 @@ if ('serviceWorker' in navigator) {
   // On the very first visit the worker takes over after the data was already fetched; fetch once more so a copy is saved.
   // A request still on its way was sent before the worker took over and is not saved, so wait for it first.
   navigator.serviceWorker.addEventListener('controllerchange', () => Promise.resolve(loading?.p).then(() => loadData()));
+  navigator.serviceWorker.addEventListener('message', (e) => { if (e.data?.type === 'open') { takeOpen(); openView(e.data.url); } });
   navigator.serviceWorker.register('sw.js').catch((e) => console.warn('offline', e));
 }
 
 render();
 loadData();
+openPending();
 if (list.hasToken()) list.sync().then(() => alerts.refresh());

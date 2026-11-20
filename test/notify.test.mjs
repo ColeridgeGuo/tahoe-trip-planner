@@ -1,8 +1,9 @@
 // Change alerts: when a push notification is sent for the departure being watched (scripts/notify.mjs).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { planState, decide, summariesDue, watchdogNote, quotaNote, watched } from '../scripts/notify.mjs';
+import { planState, decide, summariesDue, watchdogNote, quotaNote, watched, planUrl } from '../scripts/notify.mjs';
 import { quotaState } from '../js/logic.js';
+import { parseShare } from '../js/share.js';
 import { dest, H, MIN, NOW, AWD, makeData, fail, chainRow, closure, liveDrive } from './helpers.mjs';
 
 const plan = (over = {}) => ({ dest: dest.id, direction: 'out', departMs: NOW + 3 * H, setAt: NOW - 10 * MIN, ...over });
@@ -346,5 +347,14 @@ describe('which departures are watched', () => {
     } }, NOW);
     assert.deepEqual(plans.map((p) => `${p.dest}:${p.direction}`), ['heavenly:out', 'kirkwood:out', 'heavenly:back']);
     assert.deepEqual(watched(null, NOW), []);
+  });
+});
+
+describe('where tapping the notification leads', () => {
+  test('the address names the resort, the direction and the departure hour (Pacific), as a share link does', () => {
+    const p = plan({ direction: 'back', departMs: Date.UTC(2026, 10, 22, 15) }); // 07:00 PST on Nov 22
+    const url = planUrl('https://example.github.io/tahoe-trip-planner/', dest, p);
+    assert.equal(url, `https://example.github.io/tahoe-trip-planner/?resort=${dest.id}&dir=back&date=2026-11-22&time=7:00`);
+    assert.deepEqual(parseShare(new URL(url).search, [dest.id]), { destId: dest.id, direction: 'back', depart: { day: '2026-11-22', h: 7 } });
   });
 });
