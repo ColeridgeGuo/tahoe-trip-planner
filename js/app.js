@@ -478,16 +478,17 @@ function viewVerdict() {
   const controls = `<div class="controls">
     ${seg('direction', S.direction, [['out', t('out')], ['back', t('back')]])}
     ${seg('mode', pick ? 'pick' : 'now', [['now', t('now')], ['pick', t('pick')]])}
-    ${pick ? `<select data-change="day" aria-label="${t('day')}">${S.ix.days.map((x) => `<option value="${x}" ${x === day ? 'selected' : ''}>${fDay(x)}${x === L.dayKey(Date.now()) || x === L.dayKey(Date.now() + 864e5) ? ' · ' + fDayFull(x) : ''}</option>`).join('')}</select>` : ''}
+    ${pick ? `<select data-change="day" aria-label="${t('day')}">${S.ix.days.map((x) => `<option value="${x}" ${x === day ? 'selected' : ''}>${fDay(x)}${x === L.dayKey(Date.now()) || x === L.dayKey(Date.now() + 864e5) ? ' · ' + fDayFull(x) : ''}</option>`).join('')}</select>
+    <select data-change="hour" aria-label="${t('stripTitle')}">${strip.filter((x) => !x.past).map((x) => `<option value="${x.h}" ${x.h === S.depart.h ? 'selected' : ''}>${x.h % 12 || 12} ${x.h < 12 ? 'am' : 'pm'}</option>`).join('')}</select>` : ''}
   </div>${S.shareGone ? `<p class="note">${t('shareGone')}</p>` : ''}`;
 
   // Change alert for this direction: the one that is on, and a button to watch the hour picked on the strip.
-  const plan = alerts.plan(S.direction);
+  const plan = alerts.plan(d.id, S.direction);
   const sel = pickedHour();
   const busy = alerts.status() === 'busy';
   const alertRow = plan || sel ? `<div class="alertrow">
-    ${plan ? `<span class="tag ok">${plan.dest && plan.dest !== d.id ? esc(nm((DESTINATIONS.find((x) => x.id === plan.dest) || d).name)) + ' · ' : ''}${t('al.on', { when: fWhen(plan.departMs) })}</span><button class="ghost" data-act="alertOff" ${busy ? 'disabled' : ''}>${t('al.off')}</button>` : ''}
-    ${sel && (plan?.departMs !== sel.ms || (plan.dest && plan.dest !== d.id)) ? `<button class="ghost" data-act="alertOn" ${busy ? 'disabled' : ''}>${t(plan ? 'al.move' : 'al.remind')}</button>` : ''}
+    ${plan ? `<span class="tag ok">${t('al.on', { when: fWhen(plan.departMs) })}</span><button class="ghost" data-act="alertOff" ${busy ? 'disabled' : ''}>${t('al.off')}</button>` : ''}
+    ${sel && plan?.departMs !== sel.ms ? `<button class="ghost" data-act="alertOn" ${busy ? 'disabled' : ''}>${t(plan ? 'al.move' : 'al.remind')}</button>` : ''}
     ${busy ? `<span class="muted">${t('al.saving')}</span>` : S.alertErr ? `<span class="tag bad">${t('al.failed')}</span>` : ''}</div>` : '';
 
   const hero = `<section class="hero ${ev.level}">
@@ -539,7 +540,7 @@ function weekHtml() {
     }).join('')}</div></div>`).join('');
     return `<h3 class="wkdir">${t(dir)} · ${esc(nm(ends[0].name))} → ${esc(nm(ends[1].name))}${wk.lo == null ? '' : `<span>${t('driveLabel')} ${fDur(wk.lo, true)} – ${fDur(wk.hi, true)}</span>`}</h3><div class="wk">${head}${rows}</div>`;
   };
-  return block('out') + block('back') + `<div class="legend"><span><i class="lg ok"></i>${t('wkOk')}</span><span><i class="lg caution"></i>${t('wkCaution')}</span><span><i class="lg caution heavy"></i>${t('wkHeavy')}</span><span><i class="lg nogo"></i>${t('wkNogo')}</span></div><p class="note">${t(d.driveTimes === 'maps' ? 'wkHintMaps' : 'wkHint')} ${t('wkLastHint')}</p>`;
+  return block(S.direction) + `<div class="legend"><span><i class="lg ok"></i>${t('wkOk')}</span><span><i class="lg caution"></i>${t('wkCaution')}</span><span><i class="lg caution heavy"></i>${t('wkHeavy')}</span><span><i class="lg nogo"></i>${t('wkNogo')}</span></div><p class="note">${t(d.driveTimes === 'maps' ? 'wkHintMaps' : 'wkHint')}${S.direction === 'back' ? ' ' + t('wkLastHint') : ''}</p>`;
 }
 
 // ----- weather -----
@@ -934,10 +935,10 @@ document.addEventListener('click', (e) => {
       if (!h) break;
       if (alerts.blocker() !== 'ok') return openSettings();
       S.alertErr = false;
-      alerts.set(S.direction, { dest: S.destId, departMs: h.ms }, { lang: S.lang, vehicle: S.vehicle }).catch(() => { S.alertErr = true; }).finally(() => { if (alerts.blocker() !== 'ok') openSettings(); render(); });
+      alerts.set(S.destId, S.direction, { departMs: h.ms }, { lang: S.lang, vehicle: S.vehicle }).catch(() => { S.alertErr = true; }).finally(() => { if (alerts.blocker() !== 'ok') openSettings(); render(); });
       return;
     }
-    case 'alertOff': S.alertErr = false; alerts.clear(S.direction).catch(() => { S.alertErr = true; }).finally(render); return;
+    case 'alertOff': S.alertErr = false; alerts.clear(S.destId, S.direction).catch(() => { S.alertErr = true; }).finally(render); return;
     case 'alertTest': alerts.test(t('al.testTitle'), t('al.testBody')).catch(() => openSettings()); return;
     case 'alertCopy': navigator.clipboard?.writeText($('#gistId').value).then(() => { b.textContent = t('al.copied'); }); $('#gistId').select(); return;
     default: return;
@@ -950,6 +951,7 @@ document.addEventListener('change', (e) => {
   S.shareGone = false;
   switch (el.dataset.change) {
     case 'day': S.depart = { day: el.value, h: S.depart === 'now' ? 8 : S.depart.h }; break;
+    case 'hour': S.depart = { day: S.depart === 'now' ? L.dayKey(Date.now()) : S.depart.day, h: +el.value }; break;
     case 'dest': destroyMap(); setPref('destId', el.value); store.set('dest', el.value); S.data = null; S.chainLiveAt = null; S.camsLoaded.clear(); loadData(); break;
     case 'toggle': list.toggle(el.dataset.v); return;
     case 'veh': S.vehicle[el.dataset.v] = el.checked; store.set('vehicle', S.vehicle); break;

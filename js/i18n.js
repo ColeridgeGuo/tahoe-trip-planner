@@ -87,7 +87,7 @@ export const STR = {
     unsaved: '令牌还没保存，要保存吗？', discard: '不保存',
     syncTitle: '清单跨设备同步', syncHelp: '在 GitHub 生成一个只勾选 gist 权限的令牌，每台设备粘贴一次。清单存在你自己的私密 Gist 里，令牌只保存在这台设备的浏览器里。', tokenPh: 'GitHub 令牌 (ghp_… 或 github_pat_…)', save: '保存并同步', disconnect: '断开', makeToken: '生成令牌', close: '关闭',
     al: {
-      title: '变化提醒', help: '在“建议”页选好出发时间后开提醒：出行结论或链条管制等级一变，或者车程比上次通知时多出或少了 30 分钟以上，就推送到这台设备；出发前一晚 8 点和出发前 2 小时还会各发一条汇总。每 15 分钟检查一次，到出发为止。去程和返程可以各设一个。',
+      title: '变化提醒', help: '在“建议”页选好出发时间后开提醒：出行结论或链条管制等级一变，或者车程比上次通知时多出或少了 30 分钟以上，就推送到这台设备；出发前一晚 8 点和出发前 2 小时还会各发一条汇总。每 15 分钟检查一次，到出发为止。每个雪场的去程和返程可以各设一个。',
       remind: '有变化提醒我', move: '改成提醒这个时间', on: '已开提醒 · {when}出发', off: '取消提醒', saving: '保存中…', failed: '提醒没保存成功，请再试一次。',
       unsupported: '这个浏览器不支持推送。iPhone 上要先用 Safari 的“添加到主屏幕”，再从主屏幕图标打开本页。', denied: '这台设备已拒绝本页的通知，请到系统设置里重新允许。', needToken: '提醒要用到上面的同步：先粘贴 GitHub 令牌。',
       ready: '这台设备可以接收提醒。', thisOn: '这台设备已开启提醒。',
@@ -194,7 +194,7 @@ export const STR = {
     unsaved: 'The token is not saved yet. Save it?', discard: 'Don’t save',
     syncTitle: 'Sync the list across devices', syncHelp: 'Create a GitHub token with only the gist scope and paste it once per device. The list lives in a private Gist of yours; the token stays in this browser.', tokenPh: 'GitHub token (ghp_… or github_pat_…)', save: 'Save and sync', disconnect: 'Disconnect', makeToken: 'Create token', close: 'Close',
     al: {
-      title: 'Change alerts', help: 'Pick a departure time on the Verdict tab and turn on the alert: this device gets a notification whenever the verdict or the chain-control level changes, or the drive time moves 30 minutes or more from the last one reported, plus a summary at 8 pm the evening before and two hours before leaving. Checked every 15 minutes until you leave. One each for the outbound and the return trip.',
+      title: 'Change alerts', help: 'Pick a departure time on the Verdict tab and turn on the alert: this device gets a notification whenever the verdict or the chain-control level changes, or the drive time moves 30 minutes or more from the last one reported, plus a summary at 8 pm the evening before and two hours before leaving. Checked every 15 minutes until you leave. One each for the outbound and the return trip, per resort.',
       remind: 'Alert me if this changes', move: 'Watch this time instead', on: 'Alert on · leaving {when}', off: 'Turn off', saving: 'Saving…', failed: 'The alert was not saved. Please try again.',
       unsupported: 'This browser cannot receive push notifications. On an iPhone, use Safari’s “Add to Home Screen” first and open the page from that icon.', denied: 'Notifications from this page are blocked on this device. Allow them again in the system settings.', needToken: 'Alerts use the sync above: paste a GitHub token first.',
       ready: 'This device can receive alerts.', thisOn: 'Alerts are on for this device.',

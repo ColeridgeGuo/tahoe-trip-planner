@@ -4,6 +4,7 @@
 // level for that departure changes. The signing (VAPID) key pair is created here on first use and kept in the
 // same Gist, so there is no key to copy around: the workflow only needs to know which Gist to read.
 import { gist, list } from './sync.js';
+import { DESTINATIONS } from './config.js';
 
 export const ALERT_FILE = 'tahoe-trip-alerts.json';
 const KEY = 'tr.alerts';
@@ -15,6 +16,10 @@ const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(
 const unb64u = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
 
 const copy = (o) => JSON.parse(JSON.stringify(o));
+// One plan per resort and direction, so an alert set for one resort is not shown, moved or cancelled from another.
+const planKey = (dest, direction) => `${dest}:${direction}`;
+// Pages before this kept a single plan per direction under the bare direction; it belongs to the resort it names.
+const legacy = (plans, dest, direction) => { const p = plans[direction]; return p && (p.dest || DESTINATIONS[0].id) === dest ? p : null; };
 
 let device = ls.get('tr.dev');
 if (!device) { device = b64u(crypto.getRandomValues(new Uint8Array(9))); ls.set('tr.dev', device); }
@@ -71,11 +76,11 @@ export const alerts = {
     return 'ok';
   },
   enabled: () => typeof Notification !== 'undefined' && Notification.permission === 'granted' && !!st.subs[device],
-  // The plan for a direction, unless its departure time has passed.
-  plan(direction, nowMs = Date.now()) { const p = st.plans[direction]; return p && p.departMs > nowMs ? p : null; },
+  // The plan for a resort and direction, unless its departure time has passed.
+  plan(dest, direction, nowMs = Date.now()) { const p = st.plans[planKey(dest, direction)] || legacy(st.plans, dest, direction); return p && p.departMs > nowMs ? p : null; },
   any: (nowMs = Date.now()) => Object.values(st.plans).some((p) => p.departMs > nowMs),
   // Must be called from a tap: the permission prompt is only allowed in response to one.
-  async set(direction, plan, ctx) {
+  async set(dest, direction, plan, ctx) {
     ctx = copy(ctx);
     if ((await Notification.requestPermission()) !== 'granted') { onChange(); throw new Error('denied'); }
     await save(() => {});
@@ -92,11 +97,12 @@ export const alerts = {
     await save((s) => {
       s.vapid ||= st.vapid;
       s.subs[device] = sub;
-      s.plans[direction] = { ...plan, setAt: Date.now() };
+      if (legacy(s.plans, dest, direction)) delete s.plans[direction];
+      s.plans[planKey(dest, direction)] = { ...plan, dest, direction, setAt: Date.now() };
       Object.assign(s, ctx);
     });
   },
-  clear: (direction) => save((s) => { delete s.plans[direction]; }),
+  clear: (dest, direction) => save((s) => { if (legacy(s.plans, dest, direction)) delete s.plans[direction]; delete s.plans[planKey(dest, direction)]; }),
   // Language and vehicle decide the wording and the verdict, so keep the saved copy current while a plan is on.
   context(ctx) {
     ctx = copy(ctx); // the page edits its vehicle object in place; keep our own copy so a change is seen

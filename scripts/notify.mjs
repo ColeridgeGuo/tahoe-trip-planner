@@ -231,6 +231,12 @@ async function lastState() {
   try { return JSON.parse(await readFile(stateUrl, 'utf8')); } catch { return {}; }
 }
 
+// The departures still ahead. Plans are keyed "resort:direction"; one saved by an older page is keyed by the
+// bare direction and names its resort in `dest`.
+export function watched(cfg, nowMs = Date.now()) {
+  return Object.entries(cfg?.plans || {}).map(([k, p]) => ({ ...p, direction: p.direction || k })).filter((p) => p.departMs > nowMs);
+}
+
 async function main() {
   // The state file is rebuilt on every run and published with the site, so whatever happens below, the
   // previous state has to be written back or the next run would find none.
@@ -239,7 +245,7 @@ async function main() {
   const cfg = await readPlan();
   if (cfg === undefined) return console.log('alerts: ALERT_GIST_ID not set, skipping');
   const now = Date.now();
-  const plans = Object.entries(cfg?.plans || {}).map(([direction, p]) => ({ ...p, direction })).filter((p) => p.departMs > now);
+  const plans = watched(cfg, now);
   const subs = Object.entries(cfg?.subs || {});
   const next = {};
   const lang = cfg?.lang === 'en' ? 'en' : 'zh';
@@ -276,13 +282,13 @@ async function main() {
     if (state[key]) next[key] = state[key];
     const data = JSON.parse(await readFile(new URL(`../data/${dest.id}.json`, import.meta.url), 'utf8'));
     const cur = planState(data, dest, plan, { ...DEFAULT_VEHICLE, ...cfg.vehicle }, now);
-    if (cur.partial) console.log(`alerts: ${plan.direction}: ${cur.partial.join(', ')} failed on this run, holding the verdict at what was last sent`);
+    if (cur.partial) console.log(`alerts: ${dest.id} ${plan.direction}: ${cur.partial.join(', ')} failed on this run, holding the verdict at what was last sent`);
     const msg = decide(state[key], cur, plan, dest, lang, now);
-    console.log(`alerts: ${plan.direction} in ${Math.round((plan.departMs - now) / 36e5)} h: ${cur.level}, chain ${cur.chain}${cur.sec != null ? `, drive ${Math.round(cur.sec / 60)} min` : ''}${msg ? (msg.silent ? '' : state[key] ? ' -> notifying' : ' -> first check, notifying') : ', nothing to send'}`);
+    console.log(`alerts: ${dest.id} ${plan.direction} in ${Math.round((plan.departMs - now) / 36e5)} h: ${cur.level}, chain ${cur.chain}${cur.sec != null ? `, drive ${Math.round(cur.sec / 60)} min` : ''}${msg ? (msg.silent ? '' : state[key] ? ' -> notifying' : ' -> first check, notifying') : ', nothing to send'}`);
     if (!msg) continue;
-    if (msg.silent) { console.log(`alerts: ${plan.direction}: recording the current state without notifying`); next[key] = msg.told; continue; }
+    if (msg.silent) { console.log(`alerts: ${dest.id} ${plan.direction}: recording the current state without notifying`); next[key] = msg.told; continue; }
     if (process.env.ALERT_DRY) { console.log(`--- ${msg.title}\n${msg.body}\n---`); next[key] = msg.told; continue; }
-    if (await send({ title: msg.title, body: msg.body, tag: `trip-${plan.direction}` })) next[key] = msg.told; // nothing delivered: leave the state alone so the next run tries again
+    if (await send({ title: msg.title, body: msg.body, tag: `trip-${dest.id}-${plan.direction}` })) next[key] = msg.told; // nothing delivered: leave the state alone so the next run tries again
   }
   if (!plans.length) console.log('alerts: no departure being watched');
   await writeFile(stateUrl, JSON.stringify(next));
