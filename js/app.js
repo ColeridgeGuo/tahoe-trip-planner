@@ -478,8 +478,8 @@ function viewVerdict() {
   const controls = `<div class="controls">
     ${seg('direction', S.direction, [['out', t('out')], ['back', t('back')]])}
     ${seg('mode', pick ? 'pick' : 'now', [['now', t('now')], ['pick', t('pick')]])}
-    ${pick ? `<select data-change="day" aria-label="${t('day')}">${S.ix.days.map((x) => `<option value="${x}" ${x === day ? 'selected' : ''}>${fDay(x)}${x === L.dayKey(Date.now()) || x === L.dayKey(Date.now() + 864e5) ? ' · ' + fDayFull(x) : ''}</option>`).join('')}</select>
-    <select data-change="hour" aria-label="${t('stripTitle')}">${strip.filter((x) => !x.past).map((x) => `<option value="${x.h}" ${x.h === S.depart.h ? 'selected' : ''}>${x.h % 12 || 12} ${x.h < 12 ? 'am' : 'pm'}</option>`).join('')}</select>` : ''}
+    ${pick ? `<span class="when"><select data-change="day" aria-label="${t('day')}">${S.ix.days.map((x) => `<option value="${x}" ${x === day ? 'selected' : ''}>${fDay(x)}${x === L.dayKey(Date.now()) || x === L.dayKey(Date.now() + 864e5) ? ' · ' + fDayFull(x) : ''}</option>`).join('')}</select>
+    <select data-change="hour" aria-label="${t('stripTitle')}">${strip.filter((x) => !x.past).map((x) => `<option value="${x.h}" ${x.h === S.depart.h ? 'selected' : ''}>${x.h % 12 || 12} ${x.h < 12 ? 'am' : 'pm'}</option>`).join('')}</select></span>` : ''}
   </div>${S.shareGone ? `<p class="note">${t('shareGone')}</p>` : ''}`;
 
   // Change alert for this direction: the one that is on, and a button to watch the hour picked on the strip.
