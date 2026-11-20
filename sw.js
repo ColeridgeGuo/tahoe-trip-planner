@@ -90,11 +90,18 @@ self.addEventListener('push', (e) => {
     body: d.body || '', icon: 'icon-192.png', badge: 'icon-192.png', tag: d.tag, renotify: !!d.tag, data: { url: d.url || './' },
   }));
 });
+// Tapping an alert opens the view it is about (its url carries the resort, direction and departure, as a
+// share link does). A page that is already open is told to show it; otherwise a new one is opened at that
+// address. The address is also left in the cache for a moment, for the page to pick up when it comes to the
+// front: an installed app on iOS may be resumed without the message reaching it, or opened at its start page.
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
   const url = new URL(e.notification.data?.url || './', self.registration.scope).href;
-  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((cs) => {
+  const note = caches.open(CACHE).then((c) => c.put(new URL('__open', self.registration.scope).href, new Response(JSON.stringify({ url, at: Date.now() })))).catch(() => {});
+  e.waitUntil(note.then(() => self.clients.matchAll({ type: 'window', includeUncontrolled: true })).then((cs) => {
     const open = cs.find((c) => c.url.startsWith(self.registration.scope));
-    return open ? open.focus() : self.clients.openWindow(url);
+    if (!open) return self.clients.openWindow(url);
+    open.postMessage({ type: 'open', url });
+    return open.focus();
   }));
 });
