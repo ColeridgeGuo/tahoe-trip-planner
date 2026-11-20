@@ -103,7 +103,7 @@ The estimates are guidance only. Trust the official information before you drive
 ```mermaid
 flowchart LR
   cron["External cron-job<br>every 15 minutes"] -->|workflow_dispatch| deploy
-  watchdog["Watchdog workflow<br>hourly"] -.->|only if data is over 45 min old| deploy
+  watchdog["Watchdog workflow<br>every 15 min"] -.->|only if data is over 45 min old| deploy
   subgraph deploy["Refresh data and deploy (GitHub Actions)"]
     fetch["scripts/fetch.mjs"] --> notify["scripts/notify.mjs"]
   end
@@ -174,7 +174,12 @@ flowchart LR
 
 ## Watchdog
 
-`.github/workflows/watchdog.yml` is a safety net for the external cron-job. Once an hour (GitHub's own scheduler) it checks how old the published data is. Up to 45 minutes it does nothing. Beyond that it starts the refresh itself, and that run pushes a "scheduled refresh stopped" notification to the devices registered for change alerts, once a day at most. It fetches nothing while the cron-job works. GitHub disables scheduled workflows after 60 days without a commit and emails the owner when it does.
+`.github/workflows/watchdog.yml` is a safety net for the external cron-job. It checks how old the published data is. Up to 45 minutes it does nothing. Beyond that it starts the refresh itself (unless one is already running), and that run pushes a "scheduled refresh stopped" notification to the devices registered for change alerts, once a day at most. It fetches nothing while the cron-job works.
+
+It is started two ways, so that neither has to be on time:
+
+- A second job in the external cron-job calls the `workflow_dispatch` of `watchdog.yml` at :07, :22, :37 and :52. This is what gets a stopped refresh noticed within the hour.
+- GitHub's own scheduler, at the same minutes. It is very late (the old hourly schedule ran about every eight hours), so it is only the fallback for when the outside service itself, or the token both jobs share, is what failed. GitHub disables scheduled workflows after 60 days without a commit and emails the owner when it does.
 
 ## Deploy your own
 
@@ -183,6 +188,7 @@ flowchart LR
 3. For change alerts, add the secret `ALERT_GIST_ID` (the ID is shown under Settings → Change alerts once sync is connected). On an iPhone the page has to be added to the Home Screen to receive notifications.
 4. Push to `main`. The first run deploys the site.
 5. Point an external cron-job at the workflow's `workflow_dispatch` endpoint (`POST /repos/<owner>/<repo>/actions/workflows/deploy.yml/dispatches` with `{"ref":"main"}` and a token that has Actions write access), every 15 minutes.
+6. Add a second job in the same cron-job service that calls `POST /repos/<owner>/<repo>/actions/workflows/watchdog.yml/dispatches` with the same body and token at :07, :22, :37 and :52. Turn on failure notifications for both jobs.
 
 Keys and tokens live only in repository secrets and in your own browser. None are in the code.
 
