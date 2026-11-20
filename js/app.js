@@ -478,7 +478,8 @@ function viewVerdict() {
   const controls = `<div class="controls">
     ${seg('direction', S.direction, [['out', t('out')], ['back', t('back')]])}
     ${seg('mode', pick ? 'pick' : 'now', [['now', t('now')], ['pick', t('pick')]])}
-    ${pick ? `<select data-change="day" aria-label="${t('day')}">${S.ix.days.map((x) => `<option value="${x}" ${x === day ? 'selected' : ''}>${fDay(x)}${x === L.dayKey(Date.now()) || x === L.dayKey(Date.now() + 864e5) ? ' · ' + fDayFull(x) : ''}</option>`).join('')}</select>` : ''}
+    ${pick ? `<select data-change="day" aria-label="${t('day')}">${S.ix.days.map((x) => `<option value="${x}" ${x === day ? 'selected' : ''}>${fDay(x)}${x === L.dayKey(Date.now()) || x === L.dayKey(Date.now() + 864e5) ? ' · ' + fDayFull(x) : ''}</option>`).join('')}</select>
+    <select data-change="hour" aria-label="${t('stripTitle')}">${strip.filter((x) => !x.past).map((x) => `<option value="${x.h}" ${x.h === S.depart.h ? 'selected' : ''}>${fHour(x.h)}</option>`).join('')}</select>` : ''}
   </div>${S.shareGone ? `<p class="note">${t('shareGone')}</p>` : ''}`;
 
   // Change alert for this direction: the one that is on, and a button to watch the hour picked on the strip.
@@ -950,6 +951,7 @@ document.addEventListener('change', (e) => {
   S.shareGone = false;
   switch (el.dataset.change) {
     case 'day': S.depart = { day: el.value, h: S.depart === 'now' ? 8 : S.depart.h }; break;
+    case 'hour': S.depart = { day: S.depart === 'now' ? L.dayKey(Date.now()) : S.depart.day, h: +el.value }; break;
     case 'dest': destroyMap(); setPref('destId', el.value); store.set('dest', el.value); S.data = null; S.chainLiveAt = null; S.camsLoaded.clear(); loadData(); break;
     case 'toggle': list.toggle(el.dataset.v); return;
     case 'veh': S.vehicle[el.dataset.v] = el.checked; store.set('vehicle', S.vehicle); break;
