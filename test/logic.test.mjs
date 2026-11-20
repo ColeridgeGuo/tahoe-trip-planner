@@ -495,6 +495,17 @@ describe('drive time', () => {
     assert.equal(r.sec, 13500);
     assert.equal(r.stops, null);
   });
+  test('a forecast that routes round a closed road is not a drive time', () => {
+    const t = NOW + 2 * H;
+    const round = (ms) => ({ ms, sec: 43553, noTrafficSec: 42616 }); // 12 h with no traffic: TomTom went round
+    assert.ok(L.isDetour(round(t), dest.route));
+    assert.ok(!L.isDetour(fc(t, 16400), dest.route)); // a slow storm drive on the usual road is still a drive time
+    // one bad hour: read across it from the hours either side
+    assert.equal(dt(liveDrive({ hourly: { out: [fc(t, 12600), round(t + H), fc(t + 2 * H, 14400)], back: [] } }), t + H).sec, 13500);
+    // a run of them longer than can be read across: the route's fixed estimate, not 12 hours
+    const many = liveDrive({ hourly: { out: [fc(t, 12600), ...[1, 2, 3, 4].map((i) => round(t + i * H)), fc(t + 5 * H, 12600)], back: [] } });
+    assert.equal(dt(many, t + 2 * H).src, 'fixed');
+  });
   test('the 7-day grid continues where the hourly forecast ends', () => {
     const t = NOW + 2 * H;
     const drive = liveDrive({

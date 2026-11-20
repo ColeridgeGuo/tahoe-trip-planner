@@ -1,7 +1,7 @@
 // What the fetch script does with a failed source, and how it reads the feeds (scripts/lib.mjs).
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { HOURS, MAX_CARRY_MS, carried, source, shiftWeather, carriedWeather, hourly, ptToMs, stopTimes, PAST_H, pastSnow, HISTORY_MAX, addHistory, quotaUsed, dedupe, streamUrl, liveStreams, STREAM_TRIES, MONTHLY_QUOTA, LIVE_EVERY_MS, NEAR_H, MID_EVERY_MS, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours, snotelStations } from '../scripts/lib.mjs';
+import { HOURS, MAX_CARRY_MS, carried, source, shiftWeather, carriedWeather, hourly, ptToMs, stopTimes, PAST_H, pastSnow, HISTORY_MAX, addHistory, quotaUsed, dedupe, streamUrl, liveStreams, STREAM_TRIES, MONTHLY_QUOTA, LIVE_EVERY_MS, NEAR_H, MID_EVERY_MS, DETOUR_EVERY_MS, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours, snotelStations } from '../scripts/lib.mjs';
 
 const H = 36e5;
 const MIN = 6e4;
@@ -324,6 +324,19 @@ describe('TomTom quota: how often drive times are refreshed', () => {
     assert.ok(!kept.has(h0 + 10 * H));
     assert.equal(kept.size, 20);
     assert.equal(keptHours(series(0, 23, now - 12 * H), now - H, h0, now).size, 0);
+  });
+  test('an hour TomTom routed round a closure is fetched again after 3 hours, not 12', () => {
+    const detour = (x) => x.noTrafficSec > 20000;
+    const prev = series(0, 23, now - 4 * H);
+    prev.back[10].noTrafficSec = 42000; // either direction is enough
+    prev.out[11].noTrafficSec = 42000;
+    const kept = keptHours(prev, now - H, h0, now, detour);
+    assert.ok(!kept.has(h0 + 10 * H) && !kept.has(h0 + 11 * H));
+    assert.equal(kept.size, 19);
+    const fresh = series(0, 23, now - 2 * H);
+    fresh.out[11].noTrafficSec = 42000;
+    assert.ok(keptHours(fresh, now - H, h0, now, detour).has(h0 + 11 * H)); // asked 2 hours ago: not yet
+    assert.ok(DETOUR_EVERY_MS < MID_EVERY_MS && DETOUR_EVERY_MS > 2 * HOURLY_EVERY_MS);
   });
   test('the older of the two directions decides', () => {
     const prev = series(0, 23, now - H);

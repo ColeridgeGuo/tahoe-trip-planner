@@ -4,7 +4,7 @@ import { writeFile, readFile, mkdir } from 'node:fs/promises';
 import { DESTINATIONS } from '../js/config.js';
 import { CC_URL, normalizeChain, incidentDir } from '../js/normalize.js';
 import { HOURS, source, carriedWeather, hourly, ptToMs, stopTimes, pastSnow, addHistory, quotaUsed, dedupe, streamUrl, liveStreams, incidentRoad, MONTHLY_QUOTA, HOURLY_EVERY_MS, LONG_EVERY_MS, LONG_STEP_H, LONG_TO_H, keptLive, keptHours, snotelStations, SNOTEL_EVERY_MS } from './lib.mjs';
-import { chainFor, roadsOf } from '../js/logic.js';
+import { chainFor, roadsOf, isDetour } from '../js/logic.js';
 
 const UA = 'tahoe-trip-planner (personal trip dashboard, github pages)';
 const pad = (d) => String(d).padStart(2, '0');
@@ -301,9 +301,11 @@ async function drive(dest, prevFile) {
   } else {
     const hourly = { out: [], back: [] };
     try {
-      await forecast(hourly, Array.from({ length: 24 }, (_, i) => i), keptHours(prev?.hourly, prev?.hourlyAt, h0, Date.now()));
+      await forecast(hourly, Array.from({ length: 24 }, (_, i) => i), keptHours(prev?.hourly, prev?.hourlyAt, h0, Date.now(), (x) => isDetour(x, dest.route)));
       res.hourly = hourly;
       res.hourlyAt = Date.now();
+      const round = ['out', 'back'].map((k) => hourly[k].filter((x) => isDetour(x, dest.route)).length);
+      if (round[0] + round[1]) console.log(`drive hourly: TomTom routes round a closure for ${round[0]} outbound and ${round[1]} return hour(s); not shown as drive times, asked again within 3 h`);
     } catch (e) {
       // A failed forecast request must not throw away the live times above. Keep the last forecast (or the
       // hours fetched so far) and leave hourlyAt old so the next run tries again.
