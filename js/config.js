@@ -185,7 +185,10 @@ export const DESTINATIONS = [
       lonMax: -120.16,
       // The last stretch, Truckee to Northstar Dr, is on CA-267, which has its own chain control and runs
       // north-south. It is checked along with the main highway, each in its own direction of travel.
-      also: [{ highway: 'SR-267', label: 'CA-267', outboundDir: 'South', returnDir: 'North' }],
+      // CA-267 carries on past Northstar Dr (postmile 3.76) over Brockway Summit to Kings Beach, heading
+      // south-east, so like I-80 it is cut at a longitude: -120.10 is a little east of the Northstar Dr
+      // turn-off and well west of Brockway Summit. A closure is kept if either of its ends is on this side.
+      also: [{ highway: 'SR-267', label: 'CA-267', outboundDir: 'South', returnDir: 'North', lonMax: -120.10 }],
       points: [
         ORIGIN,
         // Where I-80 passes Sacramento (north of downtown), so the drive can be timed against it.
