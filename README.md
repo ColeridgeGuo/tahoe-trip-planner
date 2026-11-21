@@ -44,7 +44,7 @@ The trip starts in San Mateo. The page is in English and Chinese, in °F or °C,
 
 - One answer for the outbound or the return drive, leaving now or at an hour you pick in the next 7 days.
 - Judged for the vehicle set in Settings: a car that needs chains and has none gets a no-go where an AWD with snow tires gets a caution.
-- Counts snow that is forecast to fall as you cross, and snow that fell in the 24 hours before and is still frozen on the road.
+- Counts snow that is forecast to fall as you cross, and snow that fell in the days before and is still frozen on the road.
 - Best time to leave, hour by hour and across the week. For the drive home it names the latest departure the forecast still calls clear.
 - Tells you when the drive reaches the mountain after dark.
 - A share link that opens the same resort, direction and departure for someone else.
@@ -126,7 +126,7 @@ flowchart LR
 - Only Heavenly (`driveTimes: 'tomtom'` in `js/config.js`) gets drive times from TomTom; it uses the whole free allowance. Kirkwood and Northstar (`driveTimes: 'maps'`) send no TomTom requests: the page uses the route's usual drive time for them and links to Google Maps for the live one (`mapsUrl` in `js/logic.js`, a plain Maps URL, no key and no charge; it cannot carry a departure time, so a later departure is set inside Google Maps). The best-departure hints, drive-time bars and drive-time alerts therefore exist for Heavenly only.
 - Drive times come from TomTom (`TOMTOM_KEY` secret): live every 30 minutes, hourly for the next 24 h (the next 3 hours refreshed hourly, the rest every 12 h), and every 2 h out to 8 days (refreshed once a day). That is about 506 requests a day, or 15,700 of the 20,000 free Routing API requests a month.
 - Each drive time also says when the drive reaches every point along the route (Sacramento, Placerville, Kyburz, Echo Summit), read off the route TomTom returned, so the weather shown for a point is the weather at the moment you are there. This costs no extra requests. A point the chosen route does not pass (TomTom sometimes goes via Stockton instead of Sacramento) is placed between its neighbours.
-- TomTom's drive time for a later departure is its usual traffic for that hour and knows nothing about snow. When the forecast has snow falling or lying as you cross, the page adds an estimated range for the pass (`TH.snowDelay`: 20-40 min in light snow or on packed snow, 45-90 min in heavy snow) next to the drive time and the arrival time. The TomTom figure itself, the pass-through times and the verdict are not changed by it. Leaving now with chain control already up, the live time is left as it is.
+- TomTom's drive time for a later departure is its usual traffic for that hour and knows nothing about snow. When the forecast has snow falling or lying as you cross, the page adds an estimated range for the pass (`TH.snowDelay`: 10-30 min, measured in the storm of 18-20 Nov 2026; it does not cover traffic being held, which the page mentions in words) next to the drive time and the arrival time. The TomTom figure itself, the pass-through times and the verdict are not changed by it. Leaving now with chain control already up, the live time is left as it is.
 - `data/<destination>.json` carries `tomtom`: the requests sent so far today (UTC day), yesterday's total, and the month's count against the 20,000 allowance (`monthN`, `quota`, and `from`, the day the month's count began), also printed in the run log. The page shows the month's count in the footer. From 80% of the allowance, and again past it, the page shows a banner and the devices registered for change alerts get one notification each time (`quotaNote` in `scripts/notify.mjs`). Only requests sent by the fetch script are counted, so the TomTom dashboard remains the reference.
 
 </details>
@@ -134,7 +134,7 @@ flowchart LR
 <details>
 <summary><b>How the verdict is reached</b></summary>
 
-- The verdict also counts snow that has already fallen: enough new snow in the 12 or 24 hours before you cross, while it is still freezing, is a caution even when nothing is falling any more (`TH.pack` in `js/logic.js`). The fetch script keeps the last 24 hours of snowfall (`snowPast`) for this.
+- The verdict also counts snow that has already fallen: enough new snow in the 12, 24 or 72 hours before you cross, while it is still freezing, is a caution even when nothing is falling any more (`TH.pack` in `js/logic.js`). The fetch script keeps the last 72 hours of snowfall (`snowPast`) for this.
 - Forecast snow is judged for the vehicle set in Settings: heavy snow, or snow lying on the road, is treated as R2 chain control, so a car that needs chains and has none gets a no-go instead of a caution; light snow only adds a reminder to bring chains.
 - Only CHP collisions on the mountain section (east of `route.mountainLonMin`, Placerville) change the verdict. Valley incidents are listed, and their delay is already in the TomTom drive time.
 - Chain control that cannot be read is never shown as "no chain control": a checkpoint whose status is not an R level or a closure (traffic being held, for instance), or a feed that answers without any checkpoint for the route, gives "cannot confirm" and a caution.

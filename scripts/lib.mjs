@@ -45,7 +45,7 @@ export function carriedWeather(prev, id, t0, nowMs = Date.now()) {
 // Snowfall for the hours just before the file's first hour, oldest first, taken from the previous file (its own
 // past hours, then its forecast). The page uses it to tell that snow is still lying on the road after a storm
 // has ended. Null where the previous file does not reach.
-export const PAST_H = 24;
+export const PAST_H = 72; // as far back as the longest rule in TH.pack (js/logic.js) looks
 export function pastSnow(prev, id, t0) {
   const out = new Array(PAST_H).fill(null);
   const old = prev?.weather?.[id];

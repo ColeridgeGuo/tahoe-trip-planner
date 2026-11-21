@@ -22,16 +22,20 @@ export const TH = {
   gustLiftHigh: 80, // km/h: gondola and upper mountain likely on hold
   // Snow already on the road when you cross: this much new snow (mm) within this many hours before, either
   // rule, while it is packTemp (°C) or colder as you cross. Chain control is then probably still up.
-  // First guesses, to be checked against data/history.json after real storms.
-  pack: [{ hours: 12, mm: 50 }, { hours: 24, mm: 100 }],
+  // The 72-hour rule is for a big storm: after the one of 18-20 Nov 2026 (about 660 mm at the pass in three
+  // days) US-50 stayed at R2 for 37 hours after the snow stopped, and came off in the first hour the pass
+  // was above freezing (data/history.json). The two shorter rules had let go a day early. One storm so far.
+  pack: [{ hours: 12, mm: 50 }, { hours: 24, mm: 100 }, { hours: 72, mm: 300 }],
   packTemp: 1,
   staleMin: 120,
   liveHorizonH: 6, // live road status only decides trips starting this soon
   // Extra drive time on the mountain section in snow, in minutes [from, to]. TomTom's times for a later
-  // departure come from its usual traffic for that hour and know nothing about snow. Rough figures: the 30
-  // miles of chain-control road take about 35 min dry and about twice that at the 25-30 mph limit, plus the
-  // queue at the checkpoint. To be checked against the real drive times kept in data/history.json.
-  snowDelay: { light: [20, 40], heavy: [45, 90] },
+  // departure come from its usual traffic for that hour and know nothing about snow. Measured in the storm of
+  // 18-20 Nov 2026 (data/history.json, `m`): 35-37 min dry; under R2 the way back took 53-56 min at the
+  // median, 43-65 for the middle half, and no longer in heavy snow than in light, so both get the same
+  // range. About one R2 hour in five also had traffic held or sent round for two hours or more; that is
+  // not in the range, the page says so in words.
+  snowDelay: { light: [10, 30], heavy: [10, 30] },
   closureMarginMin: 30, // a closure counts if it is in force within this long of when the drive passes it
 };
 
@@ -46,7 +50,7 @@ export function index(data) {
 }
 
 // Hour `i` of a forecast field. Hours before the file's first hour are read from `<field>Past` where the fetch
-// script keeps them (only `snowPast`: the last day's snowfall, so snow already on the ground is not forgotten).
+// script keeps them (only `snowPast`: the last three days' snowfall, so snow already on the ground is not forgotten).
 const at = (w, field, i) => {
   if (!w) return null;
   if (i >= 0) return i < w[field].length ? w[field][i] : null;
