@@ -291,6 +291,18 @@ describe('weather on the mountain section', () => {
       assert.equal(factor(ev(taper, { departMs: LATER }), 'snow').v.pack.hours, long.hours);
       assert.equal(msg(later(long.mm / 10, 10, -5, long.hours + 1)), 'snowNone'); // more than a day ago
     });
+    test('a big storm keeps chain control up until the pass thaws, long after the snow stops', () => {
+      // 18-20 Nov 2026: R2 on US-50 stayed 37 hours after the snow ended and came off in the first hour above freezing.
+      const deep = L.TH.pack.at(-1);
+      assert.equal(deep.hours, 72);
+      const laterPass = hourIdx(LATER + route.points.find((p) => p.id === 'pass').offsetH * H);
+      const big = (temp, mm = deep.mm / 8) => storm(mm, 8, temp, 26, laterPass); // ended 26 hours before the crossing
+      const snow = (data) => factor(ev(data, { departMs: LATER }), 'snow');
+      assert.equal(snow(big(-3)).msg, 'snowPack');
+      assert.equal(snow(big(-3)).v.pack.hours, deep.hours);
+      assert.equal(snow(big(L.TH.packTemp + 1)).msg, 'snowNone'); // thawed
+      assert.equal(snow(big(-3, deep.mm / 8 - 1)).msg, 'snowNone'); // an ordinary storm that long ago
+    });
     test('while it is still snowing the falling snow is what is reported', () => {
       const data = storm(10, 6, -5);
       data.weather.pass.snow[passHour] = L.TH.snowLight;

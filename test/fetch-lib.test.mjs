@@ -186,7 +186,7 @@ describe('pass-through times read off a TomTom route', () => {
   });
 });
 
-describe('snowfall of the last day, kept for the page', () => {
+describe('snowfall of the last three days, kept for the page', () => {
   const T0 = Date.UTC(2026, 0, 13, 8);
   const file = (snow, snowPast) => ({ t0: T0, weather: { pass: { snow, ...(snowPast ? { snowPast } : {}) } } });
   test('no previous file: all unknown', () => {
